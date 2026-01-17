@@ -1,16 +1,16 @@
 <?php
 // Credenciais de Desenvolvimento/Homologação
-$host = 'driverbds.mysql.dbaas.com.br';
+/*$host = 'driverbds.mysql.dbaas.com.br';
 $db   = 'driverbds';
 $user = 'driverbds';
-$pass = 'BDSoft@1020';
+$pass = 'BDSoft@1020';*/
 /******** Final Credenciais de Desenvolvimento/Homologação************************/
 
 // Credenciais de Produção
-/*$host = 'workspacebds.mysql.dbaas.com.br'; 
+$host = 'workspacebds.mysql.dbaas.com.br'; 
 $db   = 'workspacebds';
 $user = 'workspacebds';
-$pass = 'BDSoft@1020';*/
+$pass = 'BDSoft@1020';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$db;charset=utf8mb4", $user, $pass);
