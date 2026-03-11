@@ -1,7 +1,7 @@
 <?php
 /**
  * BDSoft Workspace - DASHBOARD DEFINITIVO
- * Atualização: Diferenciação de ícones por tipo de arquivo (PDF, Word, Excel, etc)
+ * Atualização: Alteração da Marca para "Workspace Drive" e Ícones por Extensão
  */
 
 session_start();
@@ -17,7 +17,7 @@ $user_id = $_SESSION['usuario_id'];
 $user_nivel = $_SESSION['usuario_nivel']; 
 $pasta_atual = isset($_GET['pasta']) ? (int)$_GET['pasta'] : null;
 
-// Função Breadcrumbs
+// Função Breadcrumbs (Trilha de Navegação)
 function gerarCaminhoTrilha($pdo, $id, $user_id) {
     $caminho = [];
     while ($id) {
@@ -31,7 +31,7 @@ function gerarCaminhoTrilha($pdo, $id, $user_id) {
     return $caminho;
 }
 
-// Estatísticas de Quota
+// Estatísticas de Quota (Espaço em GB)
 $stmtQuota = $pdo->prepare("SELECT espaco_gb, nivel FROM usuarios WHERE id = ?");
 $stmtQuota->execute([$user_id]);
 $dados_user = $stmtQuota->fetch(PDO::FETCH_ASSOC);
@@ -47,7 +47,7 @@ $porcentagem_uso = ($quota_maxima_bytes > 0) ? round(($tamanho_usado / $quota_ma
 if ($porcentagem_uso > 100) $porcentagem_uso = 100;
 $cor_barra = ($porcentagem_uso > 90) ? 'bg-danger' : (($porcentagem_uso > 75) ? 'bg-warning' : 'bg-primary');
 
-// Nome da pasta atual
+// Nome da pasta atual para o título do navegador
 $nome_pasta_titulo = "Meu Drive";
 if ($pasta_atual) {
     $stmtN = $pdo->prepare("SELECT nome FROM pastas WHERE id = ? AND usuario_id = ?");
@@ -70,7 +70,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive - <?php echo htmlspecialchars($nome_pasta_titulo); ?></title>
+    <title>Workspace Drive - <?php echo htmlspecialchars($nome_pasta_titulo); ?></title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -108,6 +108,8 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
 
         .breadcrumb-item a { text-decoration: none; color: #5f6368; }
         .breadcrumb-item.active { color: #202124; font-weight: 600; }
+        
+        .brand-logo { color: var(--primary-blue); font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
     </style>
 </head>
 <body>
@@ -117,7 +119,11 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
 <!-- SIDEBAR -->
 <div class="sidebar shadow-sm" id="sidebar">
     <div class="p-4 d-flex justify-content-between align-items-center">
-        <h4 class="text-primary fw-bold mb-0">BDSoft Drive</h4>
+        <!-- MARCA ATUALIZADA COM O ÍCONE DA LOGIN.PHP -->
+        <div class="brand-logo d-flex align-items-center">
+            <i class="fas fa-cloud me-2"></i> <!-- Altere a classe fa-cloud para o ícone exato da login se for outro -->
+            <span>Workspace <span class="text-dark">Drive</span></span>
+        </div>
         <button class="btn btn-light d-lg-none" onclick="toggleSidebar()"><i class="fas fa-times"></i></button>
     </div>
     
@@ -145,11 +151,11 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
             <div class="progress-bar <?php echo $cor_barra; ?>" style="width: <?php echo ($is_admin ? 100 : $porcentagem_uso); ?>%"></div>
         </div>
         <div class="text-muted small" style="font-size: 11px;"><?php echo formatarBytes($tamanho_usado); ?> de <?php echo formatarBytes($quota_maxima_bytes); ?></div>
-        <a href="logout.php" class="btn btn-sm btn-outline-danger w-100 rounded-pill mt-3 fw-bold">Sair</a>
+        <a href="logout.php" class="btn btn-sm btn-outline-danger w-100 rounded-pill mt-3 fw-bold">Sair do Sistema</a>
     </div>
 </div>
 
-<!-- CONTEÚDO -->
+<!-- CONTEÚDO PRINCIPAL -->
 <div class="main-content">
     <nav class="navbar navbar-expand-lg bg-white border-bottom px-3 sticky-top">
         <button class="btn btn-white border me-2 d-lg-none text-primary" onclick="toggleSidebar()">
@@ -184,7 +190,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
             <i class="fas fa-folder-open text-warning me-3"></i> <?php echo htmlspecialchars($nome_pasta_titulo); ?>
         </h4>
 
-        <!-- PASTAS -->
+        <!-- LISTAGEM DE PASTAS -->
         <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-2 g-lg-3 mb-5">
             <?php
             $stmtP = $pdo->prepare("SELECT * FROM pastas WHERE usuario_id = ? AND " . ($pasta_atual ? "pai_id = $pasta_atual" : "pai_id IS NULL"));
@@ -209,7 +215,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
             <?php endwhile; ?>
         </div>
 
-        <!-- ARQUIVOS -->
+        <!-- LISTAGEM DE ARQUIVOS -->
         <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-2 g-lg-3">
             <?php
             $stmtA = $pdo->prepare("SELECT * FROM arquivos WHERE usuario_id = ? AND " . ($pasta_atual ? "pasta_id = $pasta_atual" : "pasta_id IS NULL") . " ORDER BY id DESC");
@@ -218,9 +224,8 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
                 $ext = strtolower(pathinfo($a['nome_original'], PATHINFO_EXTENSION));
                 $path = "uploads/user_" . $user_id . "/" . $a['nome_sistema'];
                 
-                // LÓGICA DE ÍCONES E PREVIEW
                 $isImg = in_array($ext, ['jpg','jpeg','png','webp','gif']);
-                $iconClass = "fa-file-alt text-secondary"; // Padrão
+                $iconClass = "fa-file-alt text-secondary";
                 
                 if (!$isImg) {
                     switch($ext) {
@@ -231,13 +236,12 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
                         case 'zip': case 'rar': case '7z': $iconClass = "fa-file-archive text-warning"; break;
                         case 'mp4': case 'mov': case 'avi': case 'webm': $iconClass = "fa-file-video text-info"; break;
                         case 'mp3': case 'wav': $iconClass = "fa-file-audio text-purple"; break;
-                        case 'txt': $iconClass = "fa-file-lines text-secondary"; break;
                     }
                 }
 
                 $link_view = $path;
                 $fancy_attr = 'data-fancybox="gallery"';
-                if(in_array($ext, ['pdf','doc','docx','xls','xlsx','ppt','pptx'])){
+                if(in_array($ext, ['pdf','doc','docx','xls','xlsx'])){
                     $link_view = "https://docs.google.com/viewer?url=" . urlencode("https://" . $_SERVER['HTTP_HOST'] . "/" . $path) . "&embedded=true";
                     $fancy_attr = 'data-fancybox data-type="iframe"';
                 }
@@ -265,14 +269,13 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     </div>
 </div>
 
-<!-- MODAL UPLOAD -->
+<!-- MODAIS -->
 <div class="modal fade" id="modalUpload" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
     <h5 class="fw-bold mb-3">Upload de Arquivos</h5>
     <input type="file" id="fileInput" class="form-control mb-3" multiple>
     <button onclick="enviarArquivosAJAX()" class="btn btn-primary w-100 rounded-pill fw-bold py-2">SUBIR ARQUIVOS</button>
 </div></div></div>
 
-<!-- MODAL PROGRESSO -->
 <div class="modal fade" id="modalProgresso" data-bs-backdrop="static"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
     <h5 id="msgStatus" class="fw-bold">Processando...</h5>
     <div class="progress mb-2" style="height: 12px; border-radius: 10px;"><div id="barP" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div></div>
@@ -283,7 +286,6 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     <button type="button" class="btn btn-sm btn-outline-danger rounded-pill mt-3 px-4 fw-bold" onclick="abortarUpload()">CANCELAR</button>
 </div></div></div>
 
-<!-- MODAL RENOMEAR -->
 <div class="modal fade" id="modalRenomearPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
     <div class="modal-header border-0"><h5>Renomear Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
@@ -293,7 +295,6 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     <div class="modal-footer border-0"><button type="submit" class="btn btn-primary w-100 rounded-pill fw-bold">SALVAR</button></div>
 </form></div></div>
 
-<!-- MODAL NOVA PASTA -->
 <div class="modal fade" id="modalPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
     <input type="hidden" name="acao" value="criar_pasta">
     <div class="modal-header border-0"><h5>Nova Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -332,8 +333,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
         for (let f of fileInput.files) formData.append('arquivos[]', f);
         formData.append('pasta_id', '<?php echo $pasta_atual; ?>');
 
-        const modalEl = document.getElementById('modalProgresso');
-        const modalInstance = new bootstrap.Modal(modalEl);
+        const modalInstance = new bootstrap.Modal(document.getElementById('modalProgresso'));
         const bar = document.getElementById('barP');
         const txt = document.getElementById('txtP');
         const timeLabel = document.getElementById('timeRemaining');
