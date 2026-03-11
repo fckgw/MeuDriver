@@ -2,7 +2,7 @@
 /**
  * BDSoft Workspace - TELA DE LOGIN
  * Localização: public_html/login.php
- * Atualização: Validação de Assinatura (data_fim) com fallback para Período de Teste
+ * Atualização: Redirecionamento Inteligente para itens compartilhados e Marca "Workspace Drive"
  */
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -13,11 +13,23 @@ require_once 'config.php';
 
 // Se o usuário já estiver logado e NÃO precisar trocar senha, vai para o portal
 if (isset($_SESSION['usuario_id']) && !isset($_SESSION['troca_obrigatoria'])) {
-    header("Location: index.php");
+    // Verifica se há um destino pendente (ex: link compartilhado)
+    if (isset($_SESSION['redirect_after_login'])) {
+        $destino = $_SESSION['redirect_after_login'];
+        unset($_SESSION['redirect_after_login']);
+        header("Location: " . $destino);
+    } else {
+        header("Location: index.php");
+    }
     exit;
 }
 
 $mensagem_erro = "";
+
+// Capturar mensagem via GET (ex: vinda do view_share.php)
+if (isset($_GET['msg'])) {
+    $mensagem_erro = htmlspecialchars($_GET['msg']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario_input = trim($_POST['usuario']);
@@ -93,7 +105,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             registrarLog($pdo, $user['id'], "Login", "Usuário acessou o Workspace.");
                         }
 
-                        header("Location: index.php");
+                        // --- REDIRECIONAMENTO INTELIGENTE (NOVO) ---
+                        if (isset($_SESSION['redirect_after_login'])) {
+                            $destino = $_SESSION['redirect_after_login'];
+                            unset($_SESSION['redirect_after_login']); // Limpa a variável
+                            header("Location: " . $destino);
+                        } else {
+                            header("Location: index.php");
+                        }
                         exit;
                     }
                 }
@@ -111,30 +130,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - BDSoft Workspace</title>
+    <title>Workspace Drive - Login</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { background-color: #ffffff; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', sans-serif; margin: 0; }
+        body { background-color: #ffffff; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; }
         .login-card { width: 100%; max-width: 400px; padding: 40px; border: 1px solid #f0f0f0; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); }
         .input-group-text { background: #fff; cursor: pointer; border-left: none; color: #6c757d; }
         .form-control { border-right: none; padding: 12px; }
         .form-control:focus { box-shadow: none; border-color: #dee2e6; }
         .btn-primary { padding: 12px; font-weight: bold; border-radius: 12px; background-color: #1a73e8; border: none; transition: 0.3s; }
         .btn-primary:hover { background-color: #1557b0; }
+        .brand-icon { color: #1a73e8; }
     </style>
 </head>
 <body>
 
 <div class="login-card">
     <div class="text-center mb-4">
-        <i class="fas fa-th-large text-primary fa-4x mb-3"></i>
-        <h3 class="fw-bold">BDSoft Workspace</h3>
+        <i class="fas fa-th-large brand-icon fa-4x mb-3"></i>
+        <h3 class="fw-bold">Workspace <span class="text-dark">Drive</span></h3>
         <p class="text-muted small">Gerenciador de Tecnologias Cloud</p>
     </div>
 
     <?php if(!empty($mensagem_erro)): ?>
-        <div class="alert alert-danger py-2 small text-center"><?php echo $mensagem_erro; ?></div>
+        <div class="alert alert-info py-2 small text-center fw-bold shadow-sm"><?php echo $mensagem_erro; ?></div>
     <?php endif; ?>
 
     <form method="POST" autocomplete="off">
@@ -147,7 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <label class="form-label small fw-bold text-muted text-uppercase">Senha</label>
             <div class="input-group">
                 <input type="password" name="senha" id="inputSenha" class="form-control" placeholder="••••••••" required>
-                <!-- ÍCONE DO OLHINHO -->
                 <span class="input-group-text" onclick="alternarVisibilidade()">
                     <i class="fas fa-eye" id="iconeOlho"></i>
                 </span>
