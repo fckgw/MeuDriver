@@ -1,12 +1,11 @@
 <?php
 /**
- * BDSoft Workspace - Módulo Cloud Drive
- * Local: driverbds.tecnologia.ws
+ * BDSoft Workspace - DASHBOARD DEFINITIVO
+ * Atualização: Diferenciação de ícones por tipo de arquivo (PDF, Word, Excel, etc)
  */
 
 session_start();
 
-// 1. Verificação de Segurança: Usuário está logado?
 if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php");
     exit;
@@ -14,12 +13,11 @@ if (!isset($_SESSION['usuario_id'])) {
 
 require_once 'config.php';
 
-// 2. Definições de Variáveis e Filtros
 $user_id = $_SESSION['usuario_id'];
-$user_nivel = $_SESSION['usuario_nivel']; // 'admin' ou 'usuario'
+$user_nivel = $_SESSION['usuario_nivel']; 
 $pasta_atual = isset($_GET['pasta']) ? (int)$_GET['pasta'] : null;
 
-// 3. Função para Gerar o Caminho das Pastas (Breadcrumbs)
+// Função Breadcrumbs
 function gerarCaminhoTrilha($pdo, $id, $user_id) {
     $caminho = [];
     while ($id) {
@@ -33,368 +31,362 @@ function gerarCaminhoTrilha($pdo, $id, $user_id) {
     return $caminho;
 }
 
-// 4. Buscar Nome da Pasta Atual para o Título
-$nome_pasta_exibicao = "Meu Drive";
-if ($pasta_atual) {
-    $stmtPasta = $pdo->prepare("SELECT nome FROM pastas WHERE id = ? AND usuario_id = ?");
-    $stmtPasta->execute([$pasta_atual, $user_id]);
-    $nome_pasta_exibicao = $stmtPasta->fetchColumn() ?: "Meu Drive";
-}
-
-// 5. Estatísticas de Armazenamento e Quota
-$stmtQuota = $pdo->prepare("SELECT quota_limite FROM usuarios WHERE id = ?");
+// Estatísticas de Quota
+$stmtQuota = $pdo->prepare("SELECT espaco_gb, nivel FROM usuarios WHERE id = ?");
 $stmtQuota->execute([$user_id]);
-$quota_maxima = $stmtQuota->fetchColumn() ?: 1073741824; // 1GB padrão
+$dados_user = $stmtQuota->fetch(PDO::FETCH_ASSOC);
+
+$is_admin = (strtolower($dados_user['nivel'] ?? '') === 'admin');
+$quota_gb = ($is_admin) ? 9999 : ((!empty($dados_user['espaco_gb'])) ? (int)$dados_user['espaco_gb'] : 5); 
+$quota_maxima_bytes = $quota_gb * 1073741824; 
 
 $stmtUso = $pdo->prepare("SELECT SUM(tamanho) FROM arquivos WHERE usuario_id = ?");
 $stmtUso->execute([$user_id]);
-$tamanho_usado = $stmtUso->fetchColumn() ?: 0;
+$tamanho_usado = (float)$stmtUso->fetchColumn() ?: 0;
+$porcentagem_uso = ($quota_maxima_bytes > 0) ? round(($tamanho_usado / $quota_maxima_bytes) * 100) : 0;
+if ($porcentagem_uso > 100) $porcentagem_uso = 100;
+$cor_barra = ($porcentagem_uso > 90) ? 'bg-danger' : (($porcentagem_uso > 75) ? 'bg-warning' : 'bg-primary');
 
-// Cálculo de porcentagem (Se for admin, visualmente mostramos 0% ou fixo)
-$porcentagem_uso = ($user_nivel === 'admin') ? 0 : round(($tamanho_usado / $quota_maxima) * 100);
+// Nome da pasta atual
+$nome_pasta_titulo = "Meu Drive";
+if ($pasta_atual) {
+    $stmtN = $pdo->prepare("SELECT nome FROM pastas WHERE id = ? AND usuario_id = ?");
+    $stmtN->execute([$pasta_atual, $user_id]);
+    $nome_pasta_titulo = $stmtN->fetchColumn() ?: "Meu Drive";
+}
 
-// 6. Preferência de Visualização (Grade ou Lista) via Cookie
-$modo_view = isset($_GET['view']) ? $_GET['view'] : (isset($_COOKIE['view_pref']) ? $_COOKIE['view_pref'] : 'grid');
-setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
-
-// 7. Função para Formatação de Tamanho de Arquivo
 function formatarBytes($bytes) {
     if ($bytes >= 1073741824) return number_format($bytes / 1073741824, 2) . ' GB';
     if ($bytes >= 1048576) return number_format($bytes / 1048576, 2) . ' MB';
     if ($bytes >= 1024) return number_format($bytes / 1024, 2) . ' KB';
     return $bytes . ' bytes';
 }
+
+$modo_view = isset($_GET['view']) ? $_GET['view'] : (isset($_COOKIE['view_pref']) ? $_COOKIE['view_pref'] : 'grid');
+setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drive - <?php echo htmlspecialchars($nome_pasta_exibicao); ?></title>
+    <title>Drive - <?php echo htmlspecialchars($nome_pasta_titulo); ?></title>
     
-    <!-- Bibliotecas: Bootstrap 5, FontAwesome 6 e Fancybox 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css">
     
     <style>
         :root { --sidebar-w: 280px; --primary-blue: #1a73e8; }
-        body { background-color: #f8f9fa; display: flex; min-height: 100vh; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow-x: hidden; margin: 0; }
+        body { background-color: #f8f9fa; min-height: 100vh; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; display: flex; }
         
-        /* Sidebar Fixa */
-        .sidebar { width: var(--sidebar-w); background: #ffffff; height: 100vh; position: fixed; border-right: 1px solid #dee2e6; z-index: 1000; display: flex; flex-direction: column; transition: 0.3s; }
-        .main-content { flex: 1; margin-left: var(--sidebar-w); transition: 0.3s; min-width: 0; }
+        .sidebar { width: var(--sidebar-w); background: #fff; height: 100vh; position: fixed; left: 0; top: 0; border-right: 1px solid #dee2e6; z-index: 1050; display: flex; flex-direction: column; transition: transform 0.3s ease; }
+        .main-content { flex: 1; margin-left: var(--sidebar-w); min-width: 0; transition: margin-left 0.3s ease; width: 100%; }
         
-        .nav-link { color: #3c4043; font-weight: 500; padding: 12px 24px; border-radius: 0 30px 30px 0; margin-bottom: 2px; border: none; }
-        .nav-link:hover { background-color: #f1f3f4; }
-        .nav-link.active { background-color: #e8f0fe; color: var(--primary-blue); }
-
-        /* Estilo dos Quadrinhos (Cards) */
-        .item-box { background: #ffffff; border: 1px solid #dadce0; border-radius: 12px; transition: 0.2s; position: relative; height: 100%; cursor: pointer; }
-        .item-box:hover { box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15); border-color: transparent; }
-        .item-box.drag-over { border: 2px dashed var(--primary-blue) !important; background-color: #e8f0fe !important; }
-
-        .file-thumb { height: 130px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 12px 12px 0 0; overflow: hidden; position: relative; }
-        .file-thumb img { width: 100%; height: 100%; object-fit: cover; }
-        
-        /* Seleção Múltipla */
-        .item-checkbox { position: absolute; top: 12px; left: 12px; z-index: 20; width: 18px; height: 18px; cursor: pointer; display: none; }
-        .item-box:hover .item-checkbox, .item-checkbox:checked { display: block; }
-
-        /* Barra de Ações em Massa */
-        #bulk-bar { display: none; background: var(--primary-blue); color: #fff; padding: 12px 25px; border-radius: 0 0 15px 15px; margin: 0 20px 20px 20px; align-items: center; justify-content: space-between; position: sticky; top: 70px; z-index: 900; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1040; }
 
         @media (max-width: 992px) {
-            .sidebar { left: calc(-1 * var(--sidebar-w)); }
-            .sidebar.active { left: 0; }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.show { transform: translateX(0); }
             .main-content { margin-left: 0; }
+            .sidebar-overlay.show { display: block; }
         }
+
+        .nav-link { color: #3c4043; font-weight: 500; padding: 12px 24px; border-radius: 0 30px 30px 0; border: none; transition: 0.2s; }
+        .nav-link.active { background-color: #e8f0fe; color: var(--primary-blue); }
+        .nav-link:hover { background-color: #f1f3f4; }
+
+        .item-box { background: #fff; border: 1px solid #dadce0; border-radius: 12px; cursor: pointer; transition: 0.2s; position: relative; height: 100%; }
+        .item-box:hover { box-shadow: 0 1px 4px rgba(60,64,67,0.3); }
+        .file-thumb { height: 120px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 12px 12px 0 0; font-size: 3rem; }
+        .file-thumb img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px 12px 0 0; }
+
+        .item-checkbox { position: absolute; top: 12px; left: 12px; z-index: 20; width: 18px; height: 18px; display: none; }
+        .item-box:hover .item-checkbox, .item-checkbox:checked { display: block; }
+
+        #bulk-bar { display: none; background: var(--primary-blue); color: #fff; padding: 15px 25px; position: sticky; top: 60px; z-index: 900; border-radius: 0 0 15px 15px; margin: 0 10px; justify-content: space-between; align-items: center; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+
+        .breadcrumb-item a { text-decoration: none; color: #5f6368; }
+        .breadcrumb-item.active { color: #202124; font-weight: 600; }
     </style>
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
 <!-- SIDEBAR -->
 <div class="sidebar shadow-sm" id="sidebar">
     <div class="p-4 d-flex justify-content-between align-items-center">
-        <h4 class="text-primary fw-bold mb-0">BDSoft</h4>
-        <!-- BOTÃO PARA VOLTAR AO PORTAL PRINCIPAL -->
-        <a href="index.php" class="btn btn-sm btn-light border rounded-circle shadow-sm" title="Voltar ao Workspace">
-            <i class="fas fa-th text-muted"></i>
-        </a>
+        <h4 class="text-primary fw-bold mb-0">BDSoft Drive</h4>
+        <button class="btn btn-light d-lg-none" onclick="toggleSidebar()"><i class="fas fa-times"></i></button>
     </div>
     
-    <!-- INFO USUÁRIO -->
-    <div class="px-4 py-3 bg-light border-top border-bottom">
-        <div class="fw-bold text-dark text-truncate small"><?php echo htmlspecialchars($_SESSION['usuario_nome']); ?></div>
-        <div class="text-muted" style="font-size: 10px;">
-            <i class="fas fa-history me-1"></i> Acesso: <?php echo $_SESSION['ultimo_acesso_formatado']; ?>
-        </div>
-    </div>
-
     <div class="p-3">
-        <button class="btn btn-white border shadow-sm w-100 rounded-pill py-2 fw-bold text-start px-3" data-bs-toggle="modal" data-bs-target="#modalUpload">
-            <span class="text-primary fs-4 me-2">+</span> Novo Upload
+        <button class="btn btn-primary w-100 rounded-pill py-2 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalUpload">
+            <i class="fas fa-cloud-upload-alt me-2"></i> Novo Upload
         </button>
     </div>
-
+    
     <nav class="nav flex-column mb-auto">
-        <a class="nav-link <?php echo !$pasta_atual ? 'active' : ''; ?>" href="dashboard.php"><i class="fas fa-home me-3"></i> Meu Drive</a>
+        <a class="nav-link <?php echo !$pasta_atual ? 'active' : ''; ?>" href="dashboard.php"><i class="fas fa-hdd me-3"></i> Meu Drive</a>
         <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#modalPasta"><i class="fas fa-folder-plus me-3"></i> Criar Pasta</a>
-        
-        <hr class="mx-3">
-        
         <?php if($user_nivel === 'admin'): ?>
-            <div class="px-4 mb-2 small text-muted fw-bold">ADMINISTRAÇÃO</div>
-            <a class="nav-link text-dark fw-bold" href="logs.php">
-                <i class="fas fa-list-ul me-3 text-info"></i> CONSULTAR LOGS
-            </a>
-            <a class="nav-link text-danger fw-bold" href="admin_usuarios.php">
-                <i class="fas fa-user-shield me-3"></i> USUÁRIOS
-            </a>
+            <hr class="mx-3">
+            <a class="nav-link text-danger fw-bold" href="admin_usuarios.php"><i class="fas fa-user-shield me-3"></i> USUÁRIOS</a>
         <?php endif; ?>
     </nav>
 
-    <!-- PAINEL DE QUOTA -->
     <div class="p-4 border-top">
-        <?php if($user_nivel === 'admin'): ?>
-            <div class="d-flex justify-content-between mb-1 small fw-bold text-primary">
-                <span>Armazenamento</span>
-                <span>Ilimitado</span>
-            </div>
-            <div class="progress mb-2" style="height: 6px;"><div class="progress-bar bg-primary" style="width: 100%"></div></div>
-            <div class="text-muted" style="font-size: 11px;">Uso atual: <?php echo formatarBytes($tamanho_usado); ?></div>
-        <?php else: ?>
-            <div class="d-flex justify-content-between mb-1 small fw-bold"><span>Uso</span><span><?php echo $porcentagem_uso; ?>%</span></div>
-            <div class="progress mb-2" style="height: 6px;"><div class="progress-bar bg-primary" style="width: <?php echo $porcentagem_uso; ?>%"></div></div>
-            <div class="text-muted small"><?php echo formatarBytes($tamanho_usado); ?> de <?php echo formatarBytes($quota_maxima); ?></div>
-        <?php endif; ?>
-        <a href="logout.php" class="btn btn-sm btn-outline-danger w-100 rounded-pill mt-3 fw-bold">Sair do Sistema</a>
+        <div class="small fw-bold mb-1 d-flex justify-content-between">
+            <span>Espaço</span>
+            <span><?php echo ($is_admin) ? 'Ilimitado' : $porcentagem_uso.'%'; ?></span>
+        </div>
+        <div class="progress mb-2" style="height: 8px; border-radius: 10px; background: #eee;">
+            <div class="progress-bar <?php echo $cor_barra; ?>" style="width: <?php echo ($is_admin ? 100 : $porcentagem_uso); ?>%"></div>
+        </div>
+        <div class="text-muted small" style="font-size: 11px;"><?php echo formatarBytes($tamanho_usado); ?> de <?php echo formatarBytes($quota_maxima_bytes); ?></div>
+        <a href="logout.php" class="btn btn-sm btn-outline-danger w-100 rounded-pill mt-3 fw-bold">Sair</a>
     </div>
 </div>
 
-<!-- CONTEÚDO PRINCIPAL -->
+<!-- CONTEÚDO -->
 <div class="main-content">
-    <nav class="navbar navbar-expand-lg bg-white border-bottom px-4 sticky-top">
-        <div class="container-fluid p-0">
-            <button class="btn btn-light d-lg-none me-2" onclick="document.getElementById('sidebar').classList.toggle('active')"><i class="fas fa-bars"></i></button>
-            
-            <!-- TRILHA DE NAVEGAÇÃO (BREADCRUMBS) -->
-            <nav aria-label="breadcrumb">
-                <ol class="breadcrumb mb-0">
-                    <li class="breadcrumb-item"><a href="dashboard.php" class="text-decoration-none text-muted">Meu Drive</a></li>
-                    <?php 
-                    $passos = gerarCaminhoTrilha($pdo, $pasta_atual, $user_id);
-                    foreach($passos as $passo): 
-                    ?>
-                        <li class="breadcrumb-item">
-                            <a href="dashboard.php?pasta=<?php echo $passo['id']; ?>" class="text-decoration-none">
-                                <?php echo htmlspecialchars($passo['nome']); ?>
-                            </a>
-                        </li>
-                    <?php endforeach; ?>
-                </ol>
-            </nav>
+    <nav class="navbar navbar-expand-lg bg-white border-bottom px-3 sticky-top">
+        <button class="btn btn-white border me-2 d-lg-none text-primary" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        
+        <nav aria-label="breadcrumb" class="flex-grow-1 overflow-hidden">
+            <ol class="breadcrumb mb-0 flex-nowrap">
+                <li class="breadcrumb-item"><a href="dashboard.php"><i class="fas fa-home"></i></a></li>
+                <?php 
+                $passos = gerarCaminhoTrilha($pdo, $pasta_atual, $user_id); 
+                foreach($passos as $p): 
+                ?>
+                    <li class="breadcrumb-item text-truncate"><a href="dashboard.php?pasta=<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['nome']); ?></a></li>
+                <?php endforeach; ?>
+            </ol>
+        </nav>
 
-            <div class="ms-auto d-flex align-items-center">
-                <!-- Seletor de Visualização -->
-                <div class="btn-group shadow-sm me-3">
-                    <a href="?pasta=<?php echo $pasta_atual; ?>&view=grid" class="btn btn-sm btn-white border <?php echo $modo_view == 'grid' ? 'active bg-light' : ''; ?>"><i class="fas fa-th-large"></i></a>
-                    <a href="?pasta=<?php echo $pasta_atual; ?>&view=list" class="btn btn-sm btn-white border <?php echo $modo_view == 'list' ? 'active bg-light' : ''; ?>"><i class="fas fa-list"></i></a>
-                </div>
-            </div>
+        <div class="ms-2 btn-group">
+            <a href="?pasta=<?php echo $pasta_atual; ?>&view=grid" class="btn btn-sm btn-light border <?php echo $modo_view == 'grid' ? 'active' : ''; ?>"><i class="fas fa-th-large"></i></a>
+            <a href="?pasta=<?php echo $pasta_atual; ?>&view=list" class="btn btn-sm btn-light border <?php echo $modo_view == 'list' ? 'active' : ''; ?>"><i class="fas fa-list"></i></a>
         </div>
     </nav>
 
-    <!-- BARRA DE AÇÕES EM MASSA (EXCLUIR SELEÇÃO) -->
     <div id="bulk-bar">
-        <div class="d-flex align-items-center">
-            <button class="btn btn-sm btn-light rounded-pill px-3 me-3" onclick="selecionarTodosItens()">Selecionar Tudo</button>
-            <span id="label-selecionados">0 itens selecionados</span>
-        </div>
-        <button class="btn btn-sm btn-danger rounded-pill px-4 fw-bold" onclick="excluirSelecaoMassa()"><i class="fas fa-trash me-2"></i>Excluir Seleção</button>
+        <span><b id="label-selecionados">0</b> selecionados</span>
+        <button class="btn btn-sm btn-danger rounded-pill px-4 fw-bold" onclick="excluirSelecaoMassa()">Excluir</button>
     </div>
 
-    <div class="p-4">
-        <!-- SEÇÃO: PASTAS -->
-        <h6 class="text-muted small fw-bold mb-3">PASTAS</h6>
-        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 mb-5">
+    <div class="p-3 p-lg-4">
+        <h4 class="mb-4 fw-bold text-dark d-flex align-items-center">
+            <i class="fas fa-folder-open text-warning me-3"></i> <?php echo htmlspecialchars($nome_pasta_titulo); ?>
+        </h4>
+
+        <!-- PASTAS -->
+        <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-2 g-lg-3 mb-5">
             <?php
-            $sqlP = "SELECT * FROM pastas WHERE usuario_id = ? AND " . ($pasta_atual ? "pai_id = $pasta_atual" : "pai_id IS NULL");
-            $stmtP = $pdo->prepare($sqlP);
+            $stmtP = $pdo->prepare("SELECT * FROM pastas WHERE usuario_id = ? AND " . ($pasta_atual ? "pai_id = $pasta_atual" : "pai_id IS NULL"));
             $stmtP->execute([$user_id]);
-            while($folder = $stmtP->fetch()):
+            while($f = $stmtP->fetch()):
             ?>
-            <div class="col" draggable="true" ondragstart="iniciarArraste(event, 'pasta', <?php echo $folder['id']; ?>)" ondrop="finalizarArraste(event, <?php echo $folder['id']; ?>)" ondragover="permitirArraste(event)" ondragleave="removerEfeitoArraste(event)">
-                <div class="item-box p-3 d-flex align-items-center justify-content-between">
-                    <a href="dashboard.php?pasta=<?php echo $folder['id']; ?>" class="text-decoration-none text-dark d-flex align-items-center flex-grow-1 overflow-hidden">
+            <div class="col">
+                <div class="item-box p-3 d-flex align-items-center justify-content-between shadow-sm">
+                    <a href="dashboard.php?pasta=<?php echo $f['id']; ?>" class="text-decoration-none text-dark d-flex align-items-center flex-grow-1 overflow-hidden">
                         <i class="fas fa-folder fa-2x text-warning me-3"></i>
-                        <span class="text-truncate fw-medium"><?php echo htmlspecialchars($folder['nome']); ?></span>
+                        <span class="text-truncate fw-bold"><?php echo htmlspecialchars($f['nome']); ?></span>
                     </a>
-                    <a href="pastas_acoes.php?del_pasta=<?php echo $folder['id']; ?>" class="text-danger opacity-25" onclick="return confirm('Excluir pasta e todo o seu conteúdo?')"><i class="fas fa-trash-alt"></i></a>
+                    <div class="dropdown">
+                        <button class="btn btn-link btn-sm text-muted p-0" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end border-0 shadow">
+                            <li><a class="dropdown-item" href="javascript:void(0)" onclick="abrirModalRenomearPasta(<?php echo $f['id']; ?>, '<?php echo addslashes($f['nome']); ?>')"><i class="fas fa-edit me-2"></i> Renomear</a></li>
+                            <li><a class="dropdown-item text-danger" href="pastas_acoes.php?del_pasta=<?php echo $f['id']; ?>" onclick="return confirm('Excluir pasta?')"><i class="fas fa-trash me-2"></i> Excluir</a></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             <?php endwhile; ?>
         </div>
 
-        <!-- SEÇÃO: ARQUIVOS -->
-        <h6 class="text-muted small fw-bold mb-3">ARQUIVOS</h6>
-        
-        <?php if($modo_view == 'grid'): ?>
-            <!-- VISUALIZAÇÃO EM GRADE -->
-            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
-                <?php
-                $sqlA = "SELECT * FROM arquivos WHERE usuario_id = ? AND " . ($pasta_atual ? "pasta_id = $pasta_atual" : "pasta_id IS NULL") . " ORDER BY id DESC";
-                $stmtA = $pdo->prepare($sqlA);
-                $stmtA->execute([$user_id]);
-                while($a = $stmtA->fetch()):
-                    $ext = strtolower(pathinfo($a['nome_original'], PATHINFO_EXTENSION));
-                    $path = "uploads/user_" . $user_id . "/" . $a['nome_sistema'];
-                    $url_completa = "https://" . $_SERVER['HTTP_HOST'] . "/" . $path;
-                    
-                    $isImg = in_array($ext, ['jpg','jpeg','png','webp','gif']);
-                    $isVid = in_array($ext, ['mp4','webm']);
-                    $isDoc = in_array($ext, ['doc','docx','xls','xlsx','pdf']);
-
-                    $link_view = $path; 
-                    $f_type = 'gallery';
-                    if($isDoc) {
-                        $link_view = "https://docs.google.com/viewer?url=" . urlencode($url_completa) . "&embedded=true";
-                        $f_type = 'iframe';
+        <!-- ARQUIVOS -->
+        <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-2 g-lg-3">
+            <?php
+            $stmtA = $pdo->prepare("SELECT * FROM arquivos WHERE usuario_id = ? AND " . ($pasta_atual ? "pasta_id = $pasta_atual" : "pasta_id IS NULL") . " ORDER BY id DESC");
+            $stmtA->execute([$user_id]);
+            while($a = $stmtA->fetch()):
+                $ext = strtolower(pathinfo($a['nome_original'], PATHINFO_EXTENSION));
+                $path = "uploads/user_" . $user_id . "/" . $a['nome_sistema'];
+                
+                // LÓGICA DE ÍCONES E PREVIEW
+                $isImg = in_array($ext, ['jpg','jpeg','png','webp','gif']);
+                $iconClass = "fa-file-alt text-secondary"; // Padrão
+                
+                if (!$isImg) {
+                    switch($ext) {
+                        case 'pdf': $iconClass = "fa-file-pdf text-danger"; break;
+                        case 'doc': case 'docx': $iconClass = "fa-file-word text-primary"; break;
+                        case 'xls': case 'xlsx': case 'csv': $iconClass = "fa-file-excel text-success"; break;
+                        case 'ppt': case 'pptx': $iconClass = "fa-file-powerpoint text-warning"; break;
+                        case 'zip': case 'rar': case '7z': $iconClass = "fa-file-archive text-warning"; break;
+                        case 'mp4': case 'mov': case 'avi': case 'webm': $iconClass = "fa-file-video text-info"; break;
+                        case 'mp3': case 'wav': $iconClass = "fa-file-audio text-purple"; break;
+                        case 'txt': $iconClass = "fa-file-lines text-secondary"; break;
                     }
-                ?>
-                <div class="col" draggable="true" ondragstart="iniciarArraste(event, 'arquivo', <?php echo $a['id']; ?>)">
-                    <div class="item-box overflow-hidden">
-                        <input type="checkbox" class="item-checkbox form-check-input" value="<?php echo $a['id']; ?>" onclick="contarSelecionados()">
-                        <div class="file-thumb">
-                            <a href="<?php echo $link_view; ?>" data-fancybox="<?php echo ($f_type === 'gallery' ? 'gallery' : ''); ?>" data-type="<?php echo ($f_type === 'iframe' ? 'iframe' : ''); ?>" data-caption="<?php echo htmlspecialchars($a['nome_original']); ?>">
-                                <?php if($isImg): ?><img src="<?php echo $path; ?>" alt="Preview">
-                                <?php elseif($isVid): ?><i class="fas fa-file-video fa-3x text-warning"></i><i class="fas fa-play position-absolute text-white"></i>
-                                <?php elseif($ext == 'pdf'): ?><i class="fas fa-file-pdf fa-3x text-danger"></i>
-                                <?php else: ?><i class="fas fa-file-alt fa-3x text-primary"></i><?php endif; ?>
-                            </a>
-                        </div>
-                        <div class="p-2 border-top bg-white d-flex align-items-center justify-content-between">
-                            <div class="text-truncate small fw-medium" title="<?php echo htmlspecialchars($a['nome_original']); ?>"><?php echo htmlspecialchars($a['nome_original']); ?></div>
-                            <div class="dropdown">
-                                <button class="btn btn-link btn-sm text-muted p-0" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
-                                <ul class="dropdown-menu dropdown-menu-end shadow border-0">
-                                    <li><a class="dropdown-item" href="<?php echo $path; ?>" download><i class="fas fa-download me-2 text-muted"></i> Baixar</a></li>
-                                    <li><a class="dropdown-item text-danger" href="excluir.php?id=<?php echo $a['id']; ?>" onclick="return confirm('Excluir arquivo?')"><i class="fas fa-trash-alt me-2"></i> Excluir</a></li>
-                                </ul>
-                            </div>
-                        </div>
+                }
+
+                $link_view = $path;
+                $fancy_attr = 'data-fancybox="gallery"';
+                if(in_array($ext, ['pdf','doc','docx','xls','xlsx','ppt','pptx'])){
+                    $link_view = "https://docs.google.com/viewer?url=" . urlencode("https://" . $_SERVER['HTTP_HOST'] . "/" . $path) . "&embedded=true";
+                    $fancy_attr = 'data-fancybox data-type="iframe"';
+                }
+            ?>
+            <div class="col">
+                <div class="item-box overflow-hidden shadow-sm">
+                    <input type="checkbox" class="item-checkbox form-check-input" value="<?php echo $a['id']; ?>" onclick="contarSelecionados()">
+                    <div class="file-thumb">
+                        <a href="<?php echo $link_view; ?>" <?php echo $fancy_attr; ?> data-caption="<?php echo htmlspecialchars($a['nome_original']); ?>">
+                            <?php if($isImg): ?>
+                                <img src="<?php echo $path; ?>" alt="Preview">
+                            <?php else: ?>
+                                <i class="fas <?php echo $iconClass; ?>"></i>
+                            <?php endif; ?>
+                        </a>
+                    </div>
+                    <div class="p-2 border-top bg-white">
+                        <div class="text-truncate small fw-bold" style="font-size: 11px;"><?php echo htmlspecialchars($a['nome_original']); ?></div>
+                        <div class="text-muted" style="font-size: 9px;"><?php echo date('d/m/y H:i', strtotime($a['data_upload'])); ?></div>
                     </div>
                 </div>
-                <?php endwhile; ?>
             </div>
-        <?php else: ?>
-            <!-- VISUALIZAÇÃO EM LISTA -->
-            <div class="bg-white border rounded shadow-sm overflow-hidden">
-                <div class="d-flex border-bottom p-2 fw-bold small bg-light text-muted">
-                    <div class="flex-grow-1 ps-5">Nome do Arquivo</div>
-                    <div style="width: 200px;">Data de Criação</div>
-                    <div style="width: 100px;">Tamanho</div>
-                </div>
-                <?php $stmtA->execute(); while($a = $stmtA->fetch()): ?>
-                <div class="list-row" draggable="true" ondragstart="iniciarArraste(event, 'arquivo', <?php echo $a['id']; ?>)">
-                    <input type="checkbox" class="item-checkbox form-check-input me-3" value="<?php echo $a['id']; ?>" onclick="contarSelecionados()">
-                    <div class="flex-grow-1 d-flex align-items-center">
-                        <i class="fas fa-file-alt text-primary me-3"></i>
-                        <span class="small fw-medium"><?php echo htmlspecialchars($a['nome_original']); ?></span>
-                    </div>
-                    <div class="small text-muted" style="width: 200px;"><?php echo date('d/m/Y H:i:s', strtotime($a['data_upload'])); ?></div>
-                    <div class="small text-muted" style="width: 100px;"><?php echo formatarBytes($a['tamanho']); ?></div>
-                </div>
-                <?php endwhile; ?>
-            </div>
-        <?php endif; ?>
+            <?php endwhile; ?>
+        </div>
     </div>
 </div>
 
-<!-- MODAL: UPLOAD -->
-<div class="modal fade" id="modalUpload" tabindex="-1"><div class="modal-dialog"><div class="modal-content p-4 text-center border-0 shadow-lg">
-    <h5 class="fw-bold mb-3">Subir Arquivos</h5>
-    <div class="p-5 border border-2 border-dashed rounded-4 bg-light mb-3">
-        <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
-        <input type="file" id="fileInput" class="form-control" multiple>
+<!-- MODAL UPLOAD -->
+<div class="modal fade" id="modalUpload" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
+    <h5 class="fw-bold mb-3">Upload de Arquivos</h5>
+    <input type="file" id="fileInput" class="form-control mb-3" multiple>
+    <button onclick="enviarArquivosAJAX()" class="btn btn-primary w-100 rounded-pill fw-bold py-2">SUBIR ARQUIVOS</button>
+</div></div></div>
+
+<!-- MODAL PROGRESSO -->
+<div class="modal fade" id="modalProgresso" data-bs-backdrop="static"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
+    <h5 id="msgStatus" class="fw-bold">Processando...</h5>
+    <div class="progress mb-2" style="height: 12px; border-radius: 10px;"><div id="barP" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div></div>
+    <div class="d-flex justify-content-between small fw-bold">
+        <div id="txtP" class="text-primary">0%</div>
+        <div id="timeRemaining" class="text-muted">Calculando tempo...</div>
     </div>
-    <input type="hidden" id="hidden_pasta_id" value="<?php echo $pasta_atual; ?>">
-    <button onclick="enviarArquivosAJAX()" class="btn btn-primary w-100 rounded-pill py-2 fw-bold">INICIAR ENVIO</button>
+    <button type="button" class="btn btn-sm btn-outline-danger rounded-pill mt-3 px-4 fw-bold" onclick="abortarUpload()">CANCELAR</button>
 </div></div></div>
 
-<!-- MODAL: PROGRESSO -->
-<div class="modal fade" id="modalProgresso" data-bs-backdrop="static"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 shadow-lg text-center border-0">
-    <h5 class="fw-bold mb-3" id="msgStatus">Enviando arquivos...</h5>
-    <div class="progress mb-2" style="height: 15px; border-radius: 10px;"><div id="barP" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div></div>
-    <div id="txtP" class="fw-bold text-primary">0%</div>
-</div></div></div>
-
-<!-- MODAL: NOVA PASTA -->
-<div class="modal fade" id="modalPasta" tabindex="-1"><div class="modal-dialog"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
-    <div class="modal-header border-0"><h5>Nova Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<!-- MODAL RENOMEAR -->
+<div class="modal fade" id="modalRenomearPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
+    <div class="modal-header border-0"><h5>Renomear Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-        <input type="text" name="nome_pasta" class="form-control form-control-lg" placeholder="Digite o nome da pasta" required autofocus>
-        <input type="hidden" name="pai_id" value="<?php echo $pasta_atual; ?>">
+        <input type="hidden" name="acao" value="renomear_pasta"><input type="hidden" name="pasta_id" id="renomear_pasta_id">
+        <input type="text" name="novo_nome" id="renomear_novo_nome" class="form-control form-control-lg fw-bold" required>
     </div>
-    <div class="modal-footer border-0"><button type="submit" class="btn btn-primary px-5 rounded-pill fw-bold">CRIAR</button></div>
+    <div class="modal-footer border-0"><button type="submit" class="btn btn-primary w-100 rounded-pill fw-bold">SALVAR</button></div>
 </form></div></div>
 
-<!-- Scripts Finais -->
+<!-- MODAL NOVA PASTA -->
+<div class="modal fade" id="modalPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
+    <input type="hidden" name="acao" value="criar_pasta">
+    <div class="modal-header border-0"><h5>Nova Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <input type="text" name="nome_pasta" class="form-control form-control-lg" placeholder="Nome da pasta" required>
+        <input type="hidden" name="pai_id" value="<?php echo $pasta_atual; ?>">
+    </div>
+    <div class="modal-footer border-0"><button type="submit" class="btn btn-primary w-100 rounded-pill fw-bold">CRIAR</button></div>
+</form></div></div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
-<script>
-    // Inicializar Visualizador
-    Fancybox.bind("[data-fancybox]", {});
 
-    // LÓGICA DRAG & DROP
-    function iniciarArraste(e, tipo, id) { e.dataTransfer.setData("t", tipo); e.dataTransfer.setData("id", id); }
-    function permitirArraste(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
-    function removerEfeitoArraste(e) { e.currentTarget.classList.remove('drag-over'); }
-    function finalizarArraste(e, pDestino) {
-        e.preventDefault(); e.currentTarget.classList.remove('drag-over');
-        const t = e.dataTransfer.getData("t"); const id = e.dataTransfer.getData("id");
-        if(t === 'pasta' && id == pDestino) return;
-        const url = t === 'arquivo' ? `pastas_acoes.php?mover_arq=${id}&para_pasta=${pDestino}` : `pastas_acoes.php?mover_pasta=${id}&para_pasta=${pDestino}`;
-        fetch(url, { headers: {'X-Requested-With': 'XMLHttpRequest'} }).then(() => location.reload());
+<script>
+    Fancybox.bind("[data-fancybox]", {});
+    let xhrUpload = null;
+    let startTime = 0;
+
+    function toggleSidebar() {
+        document.getElementById('sidebar').classList.toggle('show');
+        document.getElementById('sidebarOverlay').classList.toggle('show');
+    }
+    document.getElementById('sidebarOverlay').onclick = toggleSidebar;
+
+    function abrirModalRenomearPasta(id, nome) {
+        document.getElementById('renomear_pasta_id').value = id;
+        document.getElementById('renomear_novo_nome').value = nome;
+        new bootstrap.Modal(document.getElementById('modalRenomearPasta')).show();
     }
 
-    // LÓGICA DE SELEÇÃO
+    function enviarArquivosAJAX() {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput.files.length) return;
+        
+        const formData = new FormData();
+        for (let f of fileInput.files) formData.append('arquivos[]', f);
+        formData.append('pasta_id', '<?php echo $pasta_atual; ?>');
+
+        const modalEl = document.getElementById('modalProgresso');
+        const modalInstance = new bootstrap.Modal(modalEl);
+        const bar = document.getElementById('barP');
+        const txt = document.getElementById('txtP');
+        const timeLabel = document.getElementById('timeRemaining');
+        const msg = document.getElementById('msgStatus');
+
+        modalInstance.show();
+        startTime = new Date().getTime();
+        msg.innerText = "Enviando arquivos...";
+
+        xhrUpload = new XMLHttpRequest();
+        xhrUpload.open('POST', 'upload.php', true);
+
+        xhrUpload.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                bar.style.width = pct + '%';
+                txt.innerText = pct + '%';
+
+                let duration = (new Date().getTime() - startTime) / 1000;
+                let bps = e.loaded / duration;
+                let remaining = (e.total - e.loaded) / bps;
+                if (remaining > 0 && pct > 3) {
+                    timeLabel.innerText = "Faltam " + Math.round(remaining) + "s";
+                }
+            }
+        };
+
+        xhrUpload.onload = function() {
+            if (xhrUpload.status === 200) {
+                msg.innerText = "Finalizando...";
+                setTimeout(() => { location.reload(); }, 1000);
+            } else {
+                alert("Erro no upload. Verifique sua quota.");
+                modalInstance.hide();
+            }
+        };
+
+        xhrUpload.send(formData);
+    }
+
+    function abortarUpload() { if(xhrUpload) { xhrUpload.abort(); location.reload(); } }
+
     function contarSelecionados() {
         const n = document.querySelectorAll('.item-checkbox:checked').length;
         document.getElementById('bulk-bar').style.display = n > 0 ? 'flex' : 'none';
-        document.getElementById('label-selecionados').innerText = n + ' itens selecionados';
+        document.getElementById('label-selecionados').innerText = n;
     }
-    function selecionarTodosItens() {
-        const checks = document.querySelectorAll('.item-checkbox'); const all = Array.from(checks).every(x => x.checked);
-        checks.forEach(x => x.checked = !all); contarSelecionados();
-    }
+
     function excluirSelecaoMassa() {
-        if(!confirm("Deseja excluir permanentemente os itens selecionados?")) return;
+        if(!confirm("Excluir itens selecionados?")) return;
         const ids = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(x => x.value);
         const fd = new FormData(); ids.forEach(id => fd.append('ids[]', id));
         fetch('excluir_multiplos.php', { method: 'POST', body: fd }).then(() => location.reload());
-    }
-
-    // LÓGICA DE UPLOAD AJAX
-    function enviarArquivosAJAX() {
-        const fi = document.getElementById('fileInput'); if(!fi.files.length) return;
-        const modal = new bootstrap.Modal(document.getElementById('modalProgresso'));
-        const bar = document.getElementById('barP'); const txt = document.getElementById('txtP');
-        const status = document.getElementById('msgStatus');
-        modal.show();
-        const fd = new FormData(); for(let f of fi.files) fd.append('arquivos[]', f);
-        fd.append('pasta_id', document.getElementById('hidden_pasta_id').value);
-        const xhr = new XMLHttpRequest();
-        xhr.upload.onprogress = (e) => {
-            const p = Math.round((e.loaded / e.total) * 100);
-            bar.style.width = p+'%'; txt.innerText = p+'%';
-            if(p === 100) status.innerText = "Processando no servidor...";
-        };
-        xhr.onload = () => {
-            const res = JSON.parse(xhr.responseText);
-            if(res.status === 'error') { alert(res.message); modal.hide(); } else { location.reload(); }
-        };
-        xhr.open("POST", "upload.php"); xhr.send(fd);
     }
 </script>
 </body>

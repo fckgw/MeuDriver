@@ -2,6 +2,7 @@
 /**
  * BDSoft Workspace - TELA DE LOGIN
  * Localização: public_html/login.php
+ * Atualização: Validação de Assinatura (data_fim) com fallback para Período de Teste
  */
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -36,15 +37,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $mensagem_erro = "Sua conta está suspensa. Entre em contato com suporte@bdsoft.com.br";
                 } else {
                     
-                    // 2. Verificar Período de Teste (14 dias + bônus de cupom)
-                    $data_criacao = new DateTime($user['data_criacao']);
-                    $hoje = new DateTime();
-                    $dias_ativo = $hoje->diff($data_criacao)->days;
-                    $bonus = (int)$user['dias_bonus_cupom'];
+                    // 2. NOVA REGRA: Verificar Validade do Acesso (Admin, Membro Assinante ou Teste)
+                    $acesso_liberado = false;
+                    $hoje_obj = new DateTime();
+                    $hoje_str = $hoje_obj->format('Y-m-d');
 
-                    if ($dias_ativo > (14 + $bonus) && $user['nivel'] !== 'admin') {
-                        $mensagem_erro = "Seu período de teste expirou. Contate o administrador.";
+                    if ($user['nivel'] === 'admin') {
+                        $acesso_liberado = true; // Admin tem acesso vitalício
                     } else {
+                        // Verifica se o membro tem um Pacote/Assinatura definido no Admin
+                        if (!empty($user['data_fim']) && $user['data_fim'] !== '0000-00-00') {
+                            if ($user['data_fim'] >= $hoje_str) {
+                                $acesso_liberado = true; // Assinatura no prazo!
+                            } else {
+                                $mensagem_erro = "Sua assinatura expirou em " . date('d/m/Y', strtotime($user['data_fim'])) . ". Contate o administrador.";
+                            }
+                        } else {
+                            // Se NÃO tem assinatura preenchida, cai na regra do Período de Teste
+                            $data_criacao = new DateTime($user['data_criacao']);
+                            $dias_ativo = $hoje_obj->diff($data_criacao)->days;
+                            $bonus = isset($user['dias_bonus_cupom']) ? (int)$user['dias_bonus_cupom'] : 0;
+
+                            if ($dias_ativo <= (14 + $bonus)) {
+                                $acesso_liberado = true; // Ainda dentro do período de teste
+                            } else {
+                                $mensagem_erro = "Seu período de teste expirou. Adquira um plano ou contate o administrador.";
+                            }
+                        }
+                    }
+
+                    // 3. Se passou pela validação acima, faz o Login
+                    if ($acesso_liberado) {
                         
                         // --- CONFIGURAÇÃO DA SESSÃO ---
                         $_SESSION['usuario_id']      = $user['id'];
@@ -58,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             : "Primeiro Acesso";
 
                         // --- VERIFICAÇÃO DE TROCA DE SENHA OBRIGATÓRIA ---
-                        if ((int)$user['trocar_senha'] === 1) {
+                        if (isset($user['trocar_senha']) && (int)$user['trocar_senha'] === 1) {
                             $_SESSION['troca_obrigatoria'] = true;
                             header("Location: mudar_senha.php");
                             exit;

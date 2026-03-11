@@ -2,9 +2,7 @@
 /**
  * BDSoft Workspace - PORTAL CENTRAL DE SELEÇÃO DE TECNOLOGIAS
  * Localização: public_html/portal.php
- * 
- * Este arquivo atua como o Hub principal. Ele decide quais módulos exibir
- * baseando-se no nível do usuário e no período de trial (14 dias).
+ * Atualização: Adicionado Painel de Vigência do Plano (Datas e Alertas)
  */
 
 // 1. Configurações Iniciais e Sessão
@@ -32,8 +30,8 @@ $partes_nome = explode(' ', trim($usuario_nome));
 $primeiro_nome = $partes_nome[0];
 
 try {
-    // 3. Buscar dados de cadastro do usuário para calcular o período de Trial
-    $stmt_user = $pdo->prepare("SELECT data_criacao, dias_bonus_cupom FROM usuarios WHERE id = :uid LIMIT 1");
+    // 3. Buscar dados de cadastro do usuário para calcular Período e Trial
+    $stmt_user = $pdo->prepare("SELECT data_criacao, dias_bonus_cupom, nivel, data_inicio, data_fim FROM usuarios WHERE id = :uid LIMIT 1");
     $stmt_user->execute([':uid' => $usuario_id]);
     $dados_cadastro = $stmt_user->fetch(PDO::FETCH_ASSOC);
 
@@ -43,7 +41,7 @@ try {
         exit;
     }
 
-    // --- LÓGICA DE TRIAL (14 DIAS + CUPOM) ---
+    // --- LÓGICA DE TRIAL E PAINEL DE VIGÊNCIA ---
     $data_criacao = new DateTime($dados_cadastro['data_criacao']);
     $data_hoje    = new DateTime();
     $dias_desde_cadastro = $data_hoje->diff($data_criacao)->days;
@@ -52,20 +50,98 @@ try {
     $prazo_total_teste = 14 + $dias_bonus;
     $está_no_periodo_teste = ($dias_desde_cadastro <= $prazo_total_teste);
 
+    // Variáveis Visuais para o Cabeçalho
+    $html_plano = "";
+    $html_alerta = "";
+    $is_admin = (strtolower($dados_cadastro['nivel']) === 'admin');
+
+    if ($is_admin) {
+        $html_plano = "<span class='badge bg-success shadow-sm px-3 py-2 mt-2'><i class='fas fa-infinity me-1'></i> Acesso Vitalício Administrador</span>";
+    } else {
+        // Verifica se tem plano/data contratada definida
+        if (!empty($dados_cadastro['data_inicio']) && !empty($dados_cadastro['data_fim']) && $dados_cadastro['data_fim'] !== '0000-00-00') {
+            $dt_ini = date('d/m/Y', strtotime($dados_cadastro['data_inicio']));
+            $dt_fim = date('d/m/Y', strtotime($dados_cadastro['data_fim']));
+            
+            $hoje_obj = new DateTime(date('Y-m-d'));
+            $fim_obj = new DateTime($dados_cadastro['data_fim']);
+            $diferenca = $hoje_obj->diff($fim_obj);
+            
+            $dias_restantes = $diferenca->days;
+            $invertido = $diferenca->invert; // 1 = passou da data
+            
+            // Design das Datas
+            $html_plano = "
+                <div class='d-flex align-items-center gap-3 mt-2 justify-content-center justify-content-md-start'>
+                    <div class='bg-light px-3 py-2 rounded border shadow-sm text-center'>
+                        <small class='text-muted fw-bold' style='font-size:9px;'><i class='fas fa-calendar-check me-1'></i> INÍCIO</small><br>
+                        <span class='fw-bold text-dark' style='font-size:13px;'>{$dt_ini}</span>
+                    </div>
+                    <div class='bg-light px-3 py-2 rounded border shadow-sm text-center'>
+                        <small class='text-muted fw-bold' style='font-size:9px;'><i class='fas fa-calendar-times me-1'></i> FIM DO PLANO</small><br>
+                        <span class='fw-bold text-dark' style='font-size:13px;'>{$dt_fim}</span>
+                    </div>
+                </div>
+            ";
+
+            if ($invertido == 1 && $hoje_obj->format('Y-m-d') !== $fim_obj->format('Y-m-d')) {
+                // PLANO EXPIRADO
+                $html_alerta = "
+                    <div class='alert alert-danger py-2 px-3 mb-0 shadow-sm border-0 d-flex align-items-center gap-3 text-start'>
+                        <i class='fas fa-exclamation-triangle fa-2x'></i>
+                        <div>
+                            <span class='fw-bold' style='font-size:13px;'>Plano expirado há {$dias_restantes} dias!</span><br>
+                            <span style='font-size:11px;'>Contate o Administrador para regularizar o acesso.</span>
+                        </div>
+                    </div>
+                ";
+            } else {
+                // PLANO ATIVO (Se faltar <= 7 dias, fica amarelo)
+                $cor_alerta = ($dias_restantes <= 7) ? 'bg-warning text-dark' : 'bg-primary text-white';
+                $icone = ($dias_restantes <= 7) ? 'fa-exclamation-circle' : 'fa-check-circle';
+                $msg_extra = ($dias_restantes <= 7) ? 'Para evitar interrupções, renove com antecedência.' : 'Seu plano está regularizado.';
+
+                $html_alerta = "
+                    <div class='card border-0 shadow-sm {$cor_alerta} text-start'>
+                        <div class='card-body py-2 px-3 d-flex align-items-center gap-3'>
+                            <i class='fas {$icone} fa-2x opacity-75'></i>
+                            <div>
+                                <span class='fw-bold' style='font-size:13px;'>Restam {$dias_restantes} dias para renovação.</span><br>
+                                <span style='font-size:11px;' class='opacity-75'>{$msg_extra}</span>
+                            </div>
+                        </div>
+                    </div>
+                ";
+            }
+        } else {
+            // Em TRIAL (Sem contrato de data)
+            $dias_restantes_trial = $prazo_total_teste - $dias_desde_cadastro;
+            if ($dias_restantes_trial < 0) $dias_restantes_trial = 0;
+            
+            $html_plano = "<span class='badge bg-secondary shadow-sm px-3 py-2 mt-2'><i class='fas fa-stopwatch me-1'></i> Período de Teste Gratuito</span>";
+            $html_alerta = "
+                <div class='card border-0 shadow-sm bg-info text-white text-start'>
+                    <div class='card-body py-2 px-3 d-flex align-items-center gap-3'>
+                        <i class='fas fa-info-circle fa-2x opacity-75'></i>
+                        <div>
+                            <span class='fw-bold' style='font-size:13px;'>Restam {$dias_restantes_trial} dias de teste.</span><br>
+                            <span style='font-size:11px;' class='opacity-75'>Contate o Administrador para assinar um plano.</span>
+                        </div>
+                    </div>
+                </div>
+            ";
+        }
+    }
+
     /**
      * 4. LÓGICA DE CARREGAMENTO DOS MÓDULOS (APPS)
-     * - Se for ADMINISTRADOR: Vê todos os módulos da tabela 'modulos'.
-     * - Se for USUÁRIO EM TRIAL: Vê todos os módulos.
-     * - Se for USUÁRIO PÓS-TRIAL: Vê apenas os módulos vinculados em 'usuarios_modulos'.
      */
+    // (Lógica MANTIDA e intacta baseada na sua regra original)
     if (trim(strtolower($usuario_nivel)) === 'admin' || $está_no_periodo_teste) {
-        // Acesso total
         $query_modulos = "SELECT * FROM modulos ORDER BY nome ASC";
         $stmt_exec = $pdo->query($query_modulos);
         $meus_modulos = $stmt_exec->fetchAll(PDO::FETCH_ASSOC);
-        $modo_acesso = (trim(strtolower($usuario_nivel)) === 'admin') ? "Administrador" : "Período de Teste (Trial)";
     } else {
-        // Acesso restrito via tabela de permissões
         $query_restrita = "SELECT m.id, m.nome, m.slug, m.icone, m.descricao 
                            FROM modulos m 
                            INNER JOIN usuarios_modulos um ON m.id = um.modulo_id 
@@ -74,7 +150,6 @@ try {
         $stmt_exec = $pdo->prepare($query_restrita);
         $stmt_exec->execute([':uid' => $usuario_id]);
         $meus_modulos = $stmt_exec->fetchAll(PDO::FETCH_ASSOC);
-        $modo_acesso = "Plano Contratado";
     }
 
 } catch (PDOException $e) {
@@ -121,18 +196,6 @@ try {
             color: var(--primary-blue) !important;
             font-size: 1.5rem;
             letter-spacing: -0.5px;
-        }
-
-        /* Hero */
-        .hero-title {
-            padding: 70px 0 40px;
-            text-align: center;
-        }
-
-        .hero-title h1 {
-            font-weight: 700;
-            font-size: 2.3rem;
-            margin-bottom: 10px;
         }
 
         /* Estilo dos Quadrinhos de Tecnologia (Apps) */
@@ -192,19 +255,6 @@ try {
             line-height: 1.5;
         }
 
-        /* Selos de Status */
-        .badge-access {
-            font-size: 0.7rem;
-            padding: 5px 12px;
-            border-radius: 20px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            font-weight: 700;
-        }
-
-        .badge-trial { background-color: #e8f0fe; color: #1a73e8; }
-        .badge-admin { background-color: #fce8e6; color: #d93025; }
-
         .btn-logout {
             font-weight: 600;
             border-radius: 50px;
@@ -233,12 +283,32 @@ try {
 
 <div class="container pb-5">
     
-    <div class="hero-title">
-        <span class="badge badge-access <?php echo ($usuario_nivel === 'admin') ? 'badge-admin' : 'badge-trial'; ?> mb-3">
-            Acesso: <?php echo $modo_acesso; ?>
-        </span>
-        <h1>Olá, <?php echo htmlspecialchars($primeiro_nome); ?>!</h1>
-        <p class="text-muted fs-5">Selecione uma de suas tecnologias disponíveis para começar.</p>
+    <!-- NOVO CABEÇALHO RESPONSIVO: SAUDAÇÃO + PAINEL DE VIGÊNCIA -->
+    <div class="row align-items-center mt-5 mb-5">
+        
+        <!-- Bloco da Esquerda (Saudação) -->
+        <div class="col-lg-6 text-center text-lg-start mb-4 mb-lg-0">
+            <h1 class="fw-bold mb-2" style="font-size: 2.5rem;">Olá, <?php echo htmlspecialchars($primeiro_nome); ?>!</h1>
+            <p class="text-muted fs-5 mb-0">Selecione uma de suas tecnologias disponíveis para começar.</p>
+        </div>
+        
+        <!-- Bloco da Direita (Painel de Assinatura) -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm" style="border-left: 5px solid var(--primary-blue) !important; border-radius: 12px; background: #fff;">
+                <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
+                    <div class="text-center text-md-start w-100 w-md-auto">
+                        <h6 class="fw-bold text-dark mb-1">
+                            <i class="fas fa-id-card text-primary me-1"></i> Acesso Contratado
+                        </h6>
+                        <?php echo $html_plano; ?>
+                    </div>
+                    <div class="w-100 w-md-auto">
+                        <?php echo $html_alerta; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <div class="row g-4 justify-content-center">
@@ -251,7 +321,7 @@ try {
                     <h4 class="fw-bold">Acesso em processamento</h4>
                     <p class="text-muted">Seu período de teste expirou e você não possui módulos contratados ativos.<br>Por favor, entre em contato com o suporte para liberar seu acesso.</p>
                     <div class="mt-3">
-                        <a href="mailto:suporte@bdsoft.com.br" class="btn btn-primary rounded-pill px-4">CONTATO SUPORTE</a>
+                        <a href="mailto:suporte@bdsoft.com.br" class="btn btn-primary rounded-pill px-4 fw-bold shadow">CONTATO SUPORTE</a>
                     </div>
                 </div>
             </div>

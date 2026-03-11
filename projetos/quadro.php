@@ -1,7 +1,7 @@
 <?php
 /**
  * BDSoft Workspace - PROJETOS / QUADRO
- * Versão: Filtros de Projeto, Grupo, Status e Datas (Sincronizados)
+ * Versão Final: Filtros, Edição/Exclusão de Grupos e Exclusão de Tarefas
  */
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -35,7 +35,7 @@ if (!$quadro) {
     die("<div style='text-align:center; padding:50px; font-family:sans-serif;'><h2>❌ Quadro não encontrado</h2><a href='index.php'>Voltar para Projetos</a></div>");
 }
 
-// 2. Carregar Lista de Projetos (ComboBox 1) - CORRIGIDO
+// 2. Carregar Lista de Projetos (ComboBox 1)
 $stmt_meus = $pdo->prepare("SELECT id, nome FROM quadros_projetos WHERE usuario_id = ? OR tipo = 'Publico' ORDER BY nome ASC");
 $stmt_meus->execute([$user_id]);
 $meus_projetos = $stmt_meus->fetchAll(PDO::FETCH_ASSOC);
@@ -100,16 +100,23 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
         .filter-item { width: 180px; }
 
         .group-card { background: #ffffff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 35px; border: 1px solid #eee; overflow: hidden; }
-        .group-header { padding: 15px 25px; display: flex; align-items: center; justify-content: space-between; border-left: 8px solid; background: #fff; }
+        .group-header { padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; border-left: 8px solid; background: #fff; height: 60px; }
+        .group-title-input { border:none; font-weight: bold; font-size: 1.1rem; background: transparent; width: 300px; outline: none; }
+        .group-title-input:focus { border-bottom: 1px dashed #ccc; }
+
         .table-clean { width: 100%; border-collapse: collapse; }
         .table-clean th { background: #fafafa; padding: 12px; font-size: 10px; color: #6c757d; text-transform: uppercase; border-bottom: 1px solid #eee; }
         .task-row { border-bottom: 1px solid #f8f9fa; transition: 0.2s; cursor: pointer; height: 50px; }
         .task-row:hover { background-color: #f0f7ff; }
 
         .status-select { border:none; color:white; font-weight:bold; border-radius:6px; padding:6px 12px; width: 100%; cursor:pointer; text-align-last:center; outline:none; appearance:none; font-size:11px; }
-        .date-input { border:none; background:#f8f9fa; border-radius:4px; font-size:11px; padding:6px; width:100%; text-align:center; color:#555; }
         .group-collapsed { display: none !important; }
         .offcanvas { width: 45% !important; border-left: none; box-shadow: -10px 0 30px rgba(0,0,0,0.1); }
+        
+        /* Dropdown Clean */
+        .btn-action-group { color: #aaa; transition: 0.3s; }
+        .btn-action-group:hover { color: #333; background: #eee; }
+        
         @media (max-width: 991px) { .sidebar-mini { display:none; } .main-wrapper { margin-left: 0; } .offcanvas { width: 100% !important; } }
     </style>
 </head>
@@ -138,10 +145,9 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
     <div class="filter-section no-print shadow-sm">
         <form method="GET" action="quadro.php" class="d-flex flex-wrap gap-2 align-items-center w-100">
             <input type="hidden" name="id" value="<?php echo $id_quadro; ?>">
-            
             <span class="small fw-bold text-muted"><i class="fas fa-filter me-1"></i> FILTRAR:</span>
 
-            <!-- ComboBox 1: Projetos (CORRIGIDO) -->
+            <!-- ComboBox 1: Projetos -->
             <select class="form-select form-select-sm filter-item border-light" onchange="window.location.href='quadro.php?id='+this.value">
                 <?php foreach($meus_projetos as $mp) { ?>
                     <option value="<?php echo $mp['id']; ?>" <?php echo ($id_quadro == $mp['id']) ? 'selected' : ''; ?>>
@@ -150,7 +156,7 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
                 <?php } ?>
             </select>
 
-            <!-- ComboBox 2: Grupos/Sprints -->
+            <!-- ComboBox 2: Grupos -->
             <select name="f_grupo" class="form-select form-select-sm filter-item border-light">
                 <option value="">Grupo: Todos</option>
                 <?php foreach($lista_filtros_grupos as $lg) { ?>
@@ -170,7 +176,7 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
                 <?php } ?>
             </select>
 
-            <!-- Período Between -->
+            <!-- Período -->
             <div class="d-flex align-items-center gap-1 border rounded px-2 bg-light">
                 <small class="fw-bold text-muted" style="font-size: 9px;">DE:</small>
                 <input type="date" name="f_data_ini" class="form-control form-control-sm border-0 bg-transparent" value="<?php echo $f_data_ini; ?>" style="width:125px;">
@@ -179,7 +185,6 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
             </div>
 
             <button type="submit" class="btn btn-sm btn-dark rounded-pill px-3 fw-bold">APLICAR</button>
-            
             <?php if($f_grupo || $f_status || $f_mes || ($f_data_ini && $f_data_fim)) { ?>
                 <a href="quadro.php?id=<?php echo $id_quadro; ?>" class="btn btn-sm btn-link text-danger text-decoration-none small">Limpar</a>
             <?php } ?>
@@ -188,7 +193,7 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
 
     <div class="p-4">
         <?php 
-        // 1. Lógica de carregar apenas os grupos que atendem ao filtro de grupo
+        // Lógica de carregar grupos
         $sql_grupos_grid = "SELECT * FROM projetos_grupos WHERE quadro_id = ?";
         $params_g = [$id_quadro];
         if(!empty($f_grupo)) {
@@ -203,9 +208,31 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
         ?>
         <div class="group-card">
             <div class="group-header" style="border-left-color: <?php echo $g['cor']; ?>;">
+                <!-- Esquerda: Olho e Título -->
                 <div class="d-flex align-items-center gap-3">
-                    <i class="fas fa-eye text-muted cursor-pointer" onclick="toggleVisibilidade(<?php echo $g['id']; ?>)"></i>
+                    <i class="fas fa-eye text-muted cursor-pointer" onclick="toggleVisibilidade(<?php echo $g['id']; ?>)" title="Expandir/Recolher"></i>
                     <input type="text" class="group-title-input" style="color:<?php echo $g['cor']; ?>;" value="<?php echo htmlspecialchars($g['nome']); ?>" onblur="ajaxUpdateGrupo(<?php echo $g['id']; ?>, 'nome', this.value)">
+                </div>
+
+                <!-- Direita: Ações do Grupo (Novo) -->
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-action-group rounded-circle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-ellipsis-v"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0">
+                        <li><h6 class="dropdown-header small text-muted">AÇÕES DO GRUPO</h6></li>
+                        <li>
+                            <a class="dropdown-item" href="javascript:void(0)" onclick="abrirModalEditarGrupo(<?php echo $g['id']; ?>, '<?php echo htmlspecialchars(addslashes($g['nome'])); ?>', '<?php echo $g['cor']; ?>')">
+                                <i class="fas fa-pen text-primary me-2 w-25"></i> Editar / Cor
+                            </a>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item text-danger" href="javascript:void(0)" onclick="excluirGrupo(<?php echo $g['id']; ?>)">
+                                <i class="fas fa-trash me-2 w-25"></i> Excluir Grupo
+                            </a>
+                        </li>
+                    </ul>
                 </div>
             </div>
             
@@ -254,8 +281,12 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
                                     <?php } ?>
                                 </select>
                             </td>
-                            <td class="text-center">
+                            <td class="text-center text-nowrap">
                                 <button class="btn btn-sm btn-light border rounded-pill px-3 fw-bold" onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>, '<?php echo addslashes($t['titulo']); ?>')">Abrir</button>
+                                <!-- BOTÃO EXCLUIR TAREFA -->
+                                <button class="btn btn-sm text-danger ms-1 rounded-circle" onclick="excluirTarefa(<?php echo $t['id']; ?>)" title="Excluir Tarefa">
+                                    <i class="fas fa-trash"></i>
+                                </button>
                             </td>
                         </tr>
                         <?php } ?>
@@ -309,11 +340,34 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
     <label class="small fw-bold mb-1">NOME DO GRUPO</label><input type="text" name="nome_grupo" class="form-control mb-3" required autofocus><label class="small fw-bold mb-1">COR</label><input type="color" name="cor" class="form-control form-control-color w-100" value="#1a73e8"><button type="submit" class="btn btn-primary w-100 rounded-pill mt-4 fw-bold shadow">CRIAR GRUPO</button>
 </div></form></div></div>
 
+<!-- MODAL EDITAR GRUPO (NOVO) -->
+<div class="modal fade" id="modalEditarGrupo" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow border-0">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold">Editar Grupo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="edit_grupo_id">
+                <label class="small fw-bold mb-1 text-muted">NOME DO GRUPO</label>
+                <input type="text" id="edit_grupo_nome" class="form-control mb-3 fw-bold">
+                
+                <label class="small fw-bold mb-1 text-muted">COR DE DESTAQUE</label>
+                <input type="color" id="edit_grupo_cor" class="form-control form-control-color w-100 mb-4">
+                
+                <button type="button" class="btn btn-primary w-100 rounded-pill fw-bold shadow" onclick="salvarEdicaoGrupo()">SALVAR ALTERAÇÕES</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let curId = 0; 
 const offcanvasElement = document.getElementById('painelTarefa');
 const drawer = new bootstrap.Offcanvas(offcanvasElement);
+const modalEditGrupo = new bootstrap.Modal(document.getElementById('modalEditarGrupo'));
 
 function toggleVisibilidade(id) { document.getElementById('wrap_'+id).classList.toggle('group-collapsed'); }
 window.onload = function() {
@@ -324,6 +378,7 @@ function ajaxUpdateGrupo(id, campo, valor) { const fd = new FormData(); fd.appen
 function ajaxUpdateTarefa(id, campo, valor) { const fd = new FormData(); fd.append('acao', 'atualizar_campo_tarefa'); fd.append('id', id); fd.append('campo', campo); fd.append('valor', valor); fetch('acoes.php', { method: 'POST', body: fd }); }
 function addTarefaRapida(t, g) { if(!t.trim()) return; const fd = new FormData(); fd.append('acao', 'nova_tarefa_completa'); fd.append('titulo', t); fd.append('grupo_id', g); fd.append('quadro_id', <?php echo $id_quadro; ?>); fd.append('data_inicio', '<?php echo $hoje; ?>'); fd.append('data_fim', '<?php echo $hoje; ?>'); fetch('acoes.php', { method: 'POST', body: fd }).then(() => location.reload()); }
 
+// --- FUNÇÕES DE DETALHES TAREFA ---
 function abrirPainelDetalhes(id, titulo) {
     curId = id; document.getElementById('painelTitulo').innerText = titulo;
     const fd = new FormData(); fd.append('acao', 'get_full_task'); fd.append('id', id);
@@ -351,6 +406,47 @@ function adicionarNovoStatus() {
     fetch('acoes.php', { method:'POST', body:fd }).then(() => location.reload());
 }
 function excluirStatus(id) { if(confirm("Excluir status?")) { const fd = new FormData(); fd.append('acao', 'excluir_status'); fd.append('status_id', id); fetch('acoes.php', { method:'POST', body:fd }).then(() => location.reload()); } }
+
+// --- NOVAS FUNÇÕES PARA GRUPOS (EDITAR/EXCLUIR) ---
+function abrirModalEditarGrupo(id, nome, cor) {
+    document.getElementById('edit_grupo_id').value = id;
+    document.getElementById('edit_grupo_nome').value = nome;
+    document.getElementById('edit_grupo_cor').value = cor;
+    modalEditGrupo.show();
+}
+
+function salvarEdicaoGrupo() {
+    const id = document.getElementById('edit_grupo_id').value;
+    const nome = document.getElementById('edit_grupo_nome').value;
+    const cor = document.getElementById('edit_grupo_cor').value;
+
+    const fd = new FormData();
+    fd.append('acao', 'editar_grupo_full');
+    fd.append('grupo_id', id);
+    fd.append('nome', nome);
+    fd.append('cor', cor);
+
+    fetch('acoes.php', { method: 'POST', body: fd }).then(() => location.reload());
+}
+
+function excluirGrupo(id) {
+    if(confirm("ATENÇÃO: Tem certeza que deseja excluir este grupo?\nTodas as tarefas vinculadas a ele também serão excluídas.")) {
+        const fd = new FormData();
+        fd.append('acao', 'excluir_grupo');
+        fd.append('grupo_id', id);
+        fetch('acoes.php', { method: 'POST', body: fd }).then(() => location.reload());
+    }
+}
+
+// --- NOVA FUNÇÃO EXCLUIR TAREFA ---
+function excluirTarefa(id) {
+    if(confirm("Tem certeza que deseja excluir esta tarefa permanentemente?")) {
+        const fd = new FormData();
+        fd.append('acao', 'excluir_tarefa');
+        fd.append('id', id);
+        fetch('acoes.php', { method: 'POST', body: fd }).then(() => location.reload());
+    }
+}
 
 document.getElementById('editor-timeline').addEventListener('paste', function(e) {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
