@@ -1,16 +1,27 @@
 <?php
 /**
  * BDSoft Workspace - DASHBOARD DEFINITIVO (FULL VERSION)
- * Funcionalidades: Mover, Renomear, Excluir, Compartilhar (WhatsApp), 
- * Upload AJAX com Tempo Restante, Sidebar Mobile e Quota Dinâmica.
+ * Segurança: Logout Automático após 3 minutos de inatividade.
+ * Funcionalidades: Mover, Renomear, Excluir, Compartilhar, Upload AJAX c/ Tempo.
  */
 
 session_start();
 
+// 1. Verificação de Segurança e Logout por Inatividade (PHP)
 if (!isset($_SESSION['usuario_id'])) {
     header("Location: login.php");
     exit;
 }
+
+// Define o tempo limite de inatividade em segundos (3 minutos = 180s)
+$tempo_limite = 180; 
+if (isset($_SESSION['ultima_atividade']) && (time() - $_SESSION['ultima_atividade'] > $tempo_limite)) {
+    session_unset();
+    session_destroy();
+    header("Location: login.php?msg=Sua sessao expirou por inatividade.");
+    exit;
+}
+$_SESSION['ultima_atividade'] = time(); // Atualiza o tempo da última atividade
 
 require_once 'config.php';
 
@@ -18,7 +29,7 @@ $user_id = $_SESSION['usuario_id'];
 $user_nivel = $_SESSION['usuario_nivel']; 
 $pasta_atual = isset($_GET['pasta']) ? (int)$_GET['pasta'] : null;
 
-// Função Breadcrumbs (Trilha de Navegação)
+// Função Breadcrumbs (Trilha)
 function gerarCaminhoTrilha($pdo, $id, $user_id) {
     $caminho = [];
     while ($id) {
@@ -32,7 +43,7 @@ function gerarCaminhoTrilha($pdo, $id, $user_id) {
     return $caminho;
 }
 
-// Estatísticas de Quota (GB)
+// Estatísticas de Quota
 $stmtQuota = $pdo->prepare("SELECT espaco_gb, nivel FROM usuarios WHERE id = ?");
 $stmtQuota->execute([$user_id]);
 $dados_user = $stmtQuota->fetch(PDO::FETCH_ASSOC);
@@ -141,7 +152,10 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
 
 <div class="main-content">
     <nav class="navbar navbar-expand-lg bg-white border-bottom px-3 sticky-top">
-        <button class="btn btn-white border me-2 d-lg-none text-primary" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+        <button class="btn btn-white border me-2 d-lg-none text-primary" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        
         <nav aria-label="breadcrumb" class="flex-grow-1 overflow-hidden">
             <ol class="breadcrumb mb-0 flex-nowrap">
                 <li class="breadcrumb-item"><a href="dashboard.php" ondrop="finalizarArraste(event, 0)" ondragover="permitirArraste(event)"><i class="fas fa-home"></i></a></li>
@@ -219,7 +233,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
                     </div>
                     <div class="p-2 border-top bg-white d-flex justify-content-between align-items-center">
                         <div class="overflow-hidden">
-                            <div class="text-truncate small fw-bold" style="font-size: 11px;"><?php echo htmlspecialchars($a['nome_original']); ?></div>
+                            <div class="text-truncate small fw-bold" style="font-size: 11px;" title="<?php echo htmlspecialchars($a['nome_original']); ?>"><?php echo htmlspecialchars($a['nome_original']); ?></div>
                             <div class="text-muted" style="font-size: 9px;"><?php echo date('d/m/y H:i', strtotime($a['data_upload'])); ?></div>
                         </div>
                         <a href="javascript:void(0)" class="text-muted" onclick="abrirModalCompartilhar('arquivo', <?php echo $a['id']; ?>, '<?php echo addslashes($a['nome_original']); ?>')"><i class="fas fa-share-alt small"></i></a>
@@ -231,35 +245,30 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     </div>
 </div>
 
-<!-- MODAL: COMPARTILHAR -->
-<div class="modal fade" id="modalCompartilhar" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content p-4 border-0 shadow-lg">
-            <h5 class="fw-bold"><i class="fas fa-share-alt text-primary me-2"></i> Compartilhar <span id="share_nome_item"></span></h5>
-            <input type="hidden" id="share_tipo">
-            <input type="hidden" id="share_id">
-            <div class="mt-3">
-                <label class="small fw-bold text-muted">PERMISSÃO</label>
-                <select id="share_permissao" class="form-select mb-4">
-                    <option value="visualizar">Apenas Visualizar</option>
-                    <option value="editar">Pode Editar / Subir Arquivos</option>
-                </select>
-                <button class="btn btn-success w-100 rounded-pill fw-bold shadow" onclick="processarCompartilhamento('whatsapp')">
-                    <i class="fab fa-whatsapp me-2"></i>COMPARTILHAR NO WHATSAPP
-                </button>
-            </div>
-        </div>
+<!-- MODAL COMPARTILHAR -->
+<div class="modal fade" id="modalCompartilhar" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 border-0 shadow-lg">
+    <h5 class="fw-bold"><i class="fas fa-share-alt text-primary me-2"></i> Compartilhar <span id="share_nome_item"></span></h5>
+    <input type="hidden" id="share_tipo"><input type="hidden" id="share_id">
+    <div class="mt-3">
+        <label class="small fw-bold text-muted">PERMISSÃO</label>
+        <select id="share_permissao" class="form-select mb-4">
+            <option value="visualizar">Apenas Visualizar</option>
+            <option value="editar">Pode Editar / Subir Arquivos</option>
+        </select>
+        <button class="btn btn-success w-100 rounded-pill fw-bold shadow" onclick="processarCompartilhamento('whatsapp')">
+            <i class="fab fa-whatsapp me-2"></i>COMPARTILHAR NO WHATSAPP
+        </button>
     </div>
-</div>
+</div></div></div>
 
-<!-- MODAL: UPLOAD -->
+<!-- MODAL UPLOAD -->
 <div class="modal fade" id="modalUpload" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
     <h5 class="fw-bold mb-3">Upload de Arquivos</h5>
     <input type="file" id="fileInput" class="form-control mb-3" multiple>
     <button onclick="enviarArquivosAJAX()" class="btn btn-primary w-100 rounded-pill fw-bold py-2">SUBIR ARQUIVOS</button>
 </div></div></div>
 
-<!-- MODAL: PROGRESSO -->
+<!-- MODAL PROGRESSO -->
 <div class="modal fade" id="modalProgresso" data-bs-backdrop="static"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 text-center border-0 shadow-lg">
     <h5 id="msgStatus" class="fw-bold text-dark">Processando...</h5>
     <div class="progress mb-2" style="height: 14px; border-radius: 10px;"><div id="barP" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%"></div></div>
@@ -267,19 +276,17 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     <button type="button" class="btn btn-sm btn-outline-danger rounded-pill mt-3 px-4 fw-bold" onclick="abortarUpload()">CANCELAR</button>
 </div></div></div>
 
-<!-- MODAL: RENOMEAR -->
-<div class="modal fade" id="modalRenomearPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered">
-    <form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
+<!-- MODAL RENOMEAR -->
+<div class="modal fade" id="modalRenomearPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
     <div class="modal-header border-0"><h5>Renomear Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
         <input type="hidden" name="acao" value="renomear_pasta"><input type="hidden" name="pasta_id" id="renomear_pasta_id">
         <input type="text" name="novo_nome" id="renomear_novo_nome" class="form-control form-control-lg fw-bold" required autofocus>
     </div>
     <div class="modal-footer border-0"><button type="submit" class="btn btn-primary w-100 rounded-pill fw-bold">SALVAR</button></div>
-    </form>
-</div></div>
+</form></div></div>
 
-<!-- MODAL: NOVA PASTA -->
+<!-- MODAL NOVA PASTA -->
 <div class="modal fade" id="modalPasta" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form action="pastas_acoes.php" method="POST" class="modal-content border-0 shadow-lg">
     <input type="hidden" name="acao" value="criar_pasta"><div class="modal-header border-0"><h5>Nova Pasta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
@@ -289,7 +296,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     <div class="modal-footer border-0"><button type="submit" class="btn btn-primary w-100 rounded-pill fw-bold">CRIAR</button></div>
 </form></div></div>
 
-<!-- MODAL: MOVER -->
+<!-- MODAL MOVER -->
 <div class="modal fade" id="modalMover" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content p-4 border-0 shadow-lg">
     <h5 class="fw-bold mb-3"><i class="fas fa-file-export text-primary me-2"></i> Mover para...</h5>
     <div class="list-group" id="lista_pastas_mover"></div>
@@ -303,25 +310,35 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     let xhrUpload = null;
     const modalProg = new bootstrap.Modal(document.getElementById('modalProgresso'));
 
+    // --- LÓGICA DE INATIVIDADE (3 MINUTOS) ---
+    let time;
+    function resetTimer() {
+        clearTimeout(time);
+        // 180000 milissegundos = 3 minutos
+        time = setTimeout(() => {
+            alert("Sua sessão expirou por inatividade de 3 minutos.");
+            window.location.href = 'logout.php';
+        }, 180000);
+    }
+    // Eventos que reiniciam o contador
+    window.onload = resetTimer;
+    document.onmousemove = resetTimer;
+    document.onkeydown = resetTimer;
+    document.onclick = resetTimer;
+    document.onscroll = resetTimer;
+
     function toggleSidebar() { 
         document.getElementById('sidebar').classList.toggle('show'); 
         document.getElementById('sidebarOverlay').classList.toggle('show'); 
     }
 
-    // LÓGICA DE DRAG & DROP
-    function iniciarArraste(e, tipo, id) { 
-        e.dataTransfer.setData("tipo", tipo); 
-        e.dataTransfer.setData("id", id); 
-    }
-    function permitirArraste(e) { 
-        e.preventDefault(); 
-        if(e.currentTarget.classList.contains('item-box')) e.currentTarget.classList.add('drag-over'); 
-    }
+    // ARRASTE
+    function iniciarArraste(e, tipo, id) { e.dataTransfer.setData("tipo", tipo); e.dataTransfer.setData("id", id); }
+    function permitirArraste(e) { e.preventDefault(); if(e.currentTarget.classList.contains('item-box')) e.currentTarget.classList.add('drag-over'); }
     function removerEfeitoArraste(e) { e.currentTarget.classList.remove('drag-over'); }
     function finalizarArraste(e, pDestino) {
         e.preventDefault(); e.currentTarget.classList.remove('drag-over');
-        const tipo = e.dataTransfer.getData("tipo");
-        const id = e.dataTransfer.getData("id");
+        const tipo = e.dataTransfer.getData("tipo"); const id = e.dataTransfer.getData("id");
         if(tipo === 'pasta' && id == pDestino) return;
         const url = tipo === 'arquivo' ? `pastas_acoes.php?mover_arq=${id}&para_pasta=${pDestino}` : `pastas_acoes.php?mover_pasta=${id}&para_pasta=${pDestino}`;
         fetch(url).then(() => location.reload());
@@ -334,22 +351,48 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
         document.getElementById('share_nome_item').innerText = nome;
         new bootstrap.Modal(document.getElementById('modalCompartilhar')).show();
     }
-
     function processarCompartilhamento(via) {
         const fd = new FormData();
         fd.append('tipo', document.getElementById('share_tipo').value);
         fd.append('id', document.getElementById('share_id').value);
         fd.append('permissao', document.getElementById('share_permissao').value);
         fd.append('via', via);
-
-        fetch('compartilhar_acao.php', { method: 'POST', body: fd })
-        .then(r => r.json())
-        .then(res => {
+        fetch('compartilhar_acao.php', { method: 'POST', body: fd }).then(r => r.json()).then(res => {
             if(res.url_whatsapp) { window.open(res.url_whatsapp, '_blank'); }
-        }).catch(() => alert("Erro ao gerar link de compartilhamento."));
+        });
     }
 
-    // MOVER
+    // UPLOAD AJAX
+    function enviarArquivosAJAX() {
+        const fi = document.getElementById('fileInput'); if(!fi.files.length) return;
+        const bar = document.getElementById('barP'); const txt = document.getElementById('txtP');
+        const timeLab = document.getElementById('timeRemaining'); const msg = document.getElementById('msgStatus');
+        modalProg.show();
+        let start = new Date().getTime();
+        xhrUpload = new XMLHttpRequest();
+        xhrUpload.open('POST', 'upload.php', true);
+        xhrUpload.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const pct = Math.round((e.loaded / e.total) * 100);
+                bar.style.width = pct + '%'; txt.innerText = pct + '%';
+                msg.innerText = "Enviando...";
+                let dur = (new Date().getTime() - start) / 1000;
+                let bps = e.loaded / dur;
+                let rem = (e.total - e.loaded) / bps;
+                if(rem > 0 && pct > 3) {
+                    let m = Math.floor(rem/60); let s = Math.round(rem%60);
+                    timeLab.innerText = "Faltam " + (m > 0 ? m + "m " : "") + s + "s";
+                }
+            }
+        };
+        xhrUpload.onload = () => location.reload();
+        const fd = new FormData(); for(let f of fi.files) fd.append('arquivos[]', f);
+        fd.append('pasta_id', '<?php echo $pasta_atual; ?>');
+        xhrUpload.send(fd);
+    }
+    function abortarUpload() { if(xhrUpload) { xhrUpload.abort(); location.reload(); } }
+
+    // MOVER EM MASSA
     function abrirModalMover() {
         fetch('obter_pastas_json.php').then(r => r.json()).then(pastas => {
             let html = `<a href="javascript:void(0)" onclick="confirmarMover(null)" class="list-group-item list-group-item-action fw-bold text-primary"><i class="fas fa-home me-2"></i> Raiz do Drive</a>`;
@@ -363,38 +406,6 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
         const fd = new FormData(); ids.forEach(id => fd.append('ids[]', id)); fd.append('destino_id', dest);
         fetch('mover_multiplos.php', { method: 'POST', body: fd }).then(() => location.reload());
     }
-
-    // UPLOAD AJAX
-    function enviarArquivosAJAX() {
-        const fi = document.getElementById('fileInput'); if(!fi.files.length) return;
-        const bar = document.getElementById('barP'); const txt = document.getElementById('txtP');
-        const time = document.getElementById('timeRemaining'); const msg = document.getElementById('msgStatus');
-        
-        modalProg.show();
-        let start = new Date().getTime();
-        xhrUpload = new XMLHttpRequest();
-        xhrUpload.open('POST', 'upload.php', true);
-
-        xhrUpload.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-                const pct = Math.round((e.loaded / e.total) * 100);
-                bar.style.width = pct + '%'; txt.innerText = pct + '%';
-                msg.innerText = "Enviando...";
-                let dur = (new Date().getTime() - start) / 1000;
-                let bps = e.loaded / dur;
-                let rem = (e.total - e.loaded) / bps;
-                if(rem > 0 && pct > 3) {
-                    let m = Math.floor(rem/60); let s = Math.round(rem%60);
-                    time.innerText = "Faltam " + (m > 0 ? m + "m " : "") + s + "s";
-                }
-            }
-        };
-        xhrUpload.onload = () => location.reload();
-        const fd = new FormData(); for(let f of fi.files) fd.append('arquivos[]', f);
-        fd.append('pasta_id', '<?php echo $pasta_atual; ?>');
-        xhrUpload.send(fd);
-    }
-    function abortarUpload() { if(xhrUpload) { xhrUpload.abort(); location.reload(); } }
 
     function abrirModalRenomearPasta(id, nome) {
         document.getElementById('renomear_pasta_id').value = id;
