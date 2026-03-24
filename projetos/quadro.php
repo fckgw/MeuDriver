@@ -1,6 +1,7 @@
 <?php
 /**
- * BDSoft Workspace - PROJETOS / QUADRO
+ * BDSoft Workspace - PROJETOS / QUADRO (VERSÃO DEFINITIVA)
+ * Integração total: Filtros + Funcionalidades de Gestão + Timeline
  */
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -18,6 +19,14 @@ $id_quadro = (isset($_GET['id'])) ? (int)$_GET['id'] : 0;
 $user_id = $_SESSION['usuario_id'];
 $hoje = date('Y-m-d');
 
+// --- CAPTURA DE FILTROS ---
+$f_grupo    = $_GET['f_grupo'] ?? '';
+$f_status   = $_GET['f_status'] ?? '';
+$f_mes      = $_GET['f_mes'] ?? '';
+$f_data_ini = $_GET['f_data_ini'] ?? '';
+$f_data_fim = $_GET['f_data_fim'] ?? '';
+$f_situacao = $_GET['f_situacao'] ?? ''; 
+
 // 1. Validar o Quadro Atual
 $stmtQ = $pdo->prepare("SELECT * FROM quadros_projetos WHERE id = ?");
 $stmtQ->execute([$id_quadro]);
@@ -27,15 +36,19 @@ if (!$quadro) {
     die("<div style='text-align:center; padding:50px; font-family:sans-serif;'><h2>❌ Quadro não encontrado</h2><a href='index.php'>Voltar para Projetos</a></div>");
 }
 
-// 2. Carregar Combos e Filtros
+// 2. Carregar Lista de Projetos para o Seletor
 $stmt_meus = $pdo->prepare("SELECT id, nome FROM quadros_projetos WHERE usuario_id = ? OR tipo = 'Publico' ORDER BY nome ASC");
 $stmt_meus->execute([$user_id]);
 $meus_projetos = $stmt_meus->fetchAll(PDO::FETCH_ASSOC);
 
+// 3. Carregar Status do Quadro para Filtros e Tarefas
 $stmtS = $pdo->prepare("SELECT * FROM quadros_status WHERE quadro_id = ? ORDER BY id ASC");
 $stmtS->execute([$id_quadro]);
 $lista_status = $stmtS->fetchAll(PDO::FETCH_ASSOC);
 
+/**
+ * FUNÇÕES AUXILIARES
+ */
 function obterCorStatus($lista, $status_id) {
     foreach($lista as $s) { if($s['id'] == $status_id) return $s['cor']; }
     return "#c4c4c4";
@@ -44,15 +57,26 @@ function obterCorStatus($lista, $status_id) {
 function calcularSituacaoTarefa($t, $hoje, $lista_status) {
     $nome_status = '';
     foreach($lista_status as $s) { if($s['id'] == $t['status_id']) $nome_status = $s['label']; }
+
     if (stripos($nome_status, 'Concluído') !== false || stripos($nome_status, 'Concluido') !== false) {
-        return ($t['data_conclusao'] <= $t['data_fim']) 
-            ? '<span class="badge bg-success shadow-sm">ENTREGUE NO PRAZO</span>' 
-            : '<span class="badge bg-warning text-dark shadow-sm">ENTREGUE COM ATRASO</span>';
+        $data_finalizacao = $t['data_conclusao'] ?? $hoje;
+        return ($data_finalizacao <= $t['data_fim']) ? 'entregue' : 'atrasado_entregue';
     }
-    if (empty($t['data_inicio']) || empty($t['data_fim'])) return '<span class="badge bg-light text-muted border">S/ DATA</span>';
-    if ($t['data_inicio'] > $hoje) return '<span class="badge bg-secondary opacity-75">AGUARDANDO</span>';
-    if ($hoje >= $t['data_inicio'] && $hoje <= $t['data_fim']) return '<span class="badge bg-primary shadow-sm">EM CURSO</span>';
-    return '<span class="badge bg-danger shadow-sm">ATRASADO</span>';
+    if (empty($t['data_inicio']) || empty($t['data_fim'])) return 'sem_data';
+    if ($t['data_inicio'] > $hoje) return 'aguardando';
+    if ($hoje >= $t['data_inicio'] && $hoje <= $t['data_fim']) return 'em_curso';
+    return 'atrasado';
+}
+
+function situacaoBadge($sigla) {
+    switch($sigla) {
+        case 'entregue': return '<span class="badge bg-success shadow-sm">NO PRAZO</span>';
+        case 'atrasado_entregue': return '<span class="badge bg-warning text-dark shadow-sm">ENTREGUE C/ ATRASO</span>';
+        case 'atrasado': return '<span class="badge bg-danger shadow-sm">ATRASADO</span>';
+        case 'em_curso': return '<span class="badge bg-primary shadow-sm">EM CURSO</span>';
+        case 'aguardando': return '<span class="badge bg-secondary opacity-75">AGUARDANDO</span>';
+        default: return '<span class="badge bg-light text-muted border">S/ DATA</span>';
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -71,24 +95,35 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
         .sidebar-mini a:hover { color: #fff; transform: scale(1.1); }
         .main-wrapper { flex:1; margin-left: var(--sidebar-mini-w); min-width: 0; }
         .nav-board { background:#ffffff; border-bottom:1px solid #dee2e6; padding:12px 25px; position:sticky; top:0; z-index:900; }
+        
         .filter-section { background: #fff; border-bottom: 1px solid #eee; padding: 10px 25px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .form-label-min { font-size: 9px; font-weight: 800; color: #999; text-transform: uppercase; margin-bottom: 2px; display: block; }
+
         .group-card { background: #ffffff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 35px; border: 1px solid #eee; overflow: hidden; }
         .group-header { padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; border-left: 8px solid; background: #fff; height: 60px; }
         .group-title-input { border:none; font-weight: bold; font-size: 1.1rem; background: transparent; width: 300px; outline: none; }
+        .group-title-input:focus { border-bottom: 1px dashed #ccc; }
+
         .table-clean { width: 100%; border-collapse: collapse; }
         .table-clean th { background: #fafafa; padding: 12px; font-size: 10px; color: #6c757d; text-transform: uppercase; border-bottom: 1px solid #eee; }
-        .task-row { border-bottom: 1px solid #f8f9fa; transition: 0.2s; cursor: pointer; height: 50px; }
+        .task-row { border-bottom: 1px solid #f8f9fa; transition: 0.2s; cursor: pointer; }
         .task-row:hover { background-color: #f0f7ff; }
+
         .status-select { border:none; color:white; font-weight:bold; border-radius:6px; padding:6px 12px; width: 100%; cursor:pointer; text-align-last:center; outline:none; appearance:none; font-size:11px; }
         .group-collapsed { display: none !important; }
         .offcanvas { width: 45% !important; border-left: none; box-shadow: -10px 0 30px rgba(0,0,0,0.1); }
         #editor-timeline { min-height: 100px; border: 1px solid #ddd; padding: 15px; border-radius: 12px; background: #fff; margin-bottom: 10px; outline: none; overflow-y: auto; }
         #editor-timeline img { max-width: 100%; border-radius: 8px; margin-top: 10px; }
+
+        .btn-action-group { color: #aaa; transition: 0.3s; }
+        .btn-action-group:hover { color: #333; background: #eee; }
+        
         @media (max-width: 991px) { .sidebar-mini { display:none; } .main-wrapper { margin-left: 0; } .offcanvas { width: 100% !important; } }
     </style>
 </head>
 <body>
 
+<!-- SIDEBAR -->
 <div class="sidebar-mini shadow no-print">
     <a href="../portal.php" title="Portal Workspace"><i class="fas fa-th-large fa-2x"></i></a>
     <a href="index.php" title="Meus Projetos"><i class="fas fa-project-diagram fa-lg"></i></a>
@@ -97,8 +132,17 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
 </div>
 
 <div class="main-wrapper">
+    <!-- NAVBAR PRINCIPAL -->
     <nav class="nav-board d-flex justify-content-between align-items-center shadow-sm">
-        <h5 class="fw-bold mb-0 text-dark"><?php echo htmlspecialchars($quadro['nome']); ?></h5>
+        <div class="d-flex align-items-center gap-3">
+            <h5 class="fw-bold mb-0 text-dark"><?php echo htmlspecialchars($quadro['nome']); ?></h5>
+            <!-- Seletor de Projetos Rápido -->
+            <select class="form-select form-select-sm border-light bg-light" style="width: 180px;" onchange="window.location.href='quadro.php?id='+this.value">
+                <?php foreach($meus_projetos as $mp) { ?>
+                    <option value="<?php echo $mp['id']; ?>" <?php echo ($id_quadro == $mp['id']) ? 'selected' : ''; ?>>Projeto: <?php echo htmlspecialchars($mp['nome']); ?></option>
+                <?php } ?>
+            </select>
+        </div>
         <div class="d-flex gap-2">
             <button class="btn btn-outline-dark btn-sm rounded-pill px-3 fw-bold" onclick="abrirModalStatus()">ETIQUETAS</button>
             <button class="btn btn-primary btn-sm rounded-pill px-3 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#modalNovoGrupo">+ GRUPO</button>
@@ -106,6 +150,59 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
         </div>
     </nav>
 
+    <!-- BARRA DE FILTROS -->
+    <div class="filter-section no-print shadow-sm">
+        <form method="GET" class="d-flex flex-wrap gap-3 align-items-end">
+            <input type="hidden" name="id" value="<?php echo $id_quadro; ?>">
+            
+            <div style="width: 160px;">
+                <label class="form-label-min">Status</label>
+                <select name="f_status" class="form-select form-select-sm border-light bg-light">
+                    <option value="">Todos</option>
+                    <?php foreach($lista_status as $st) { ?>
+                        <option value="<?php echo $st['id']; ?>" <?php echo ($f_status == $st['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($st['label']); ?></option>
+                    <?php } ?>
+                </select>
+            </div>
+
+            <div style="width: 140px;">
+                <label class="form-label-min">Situação</label>
+                <select name="f_situacao" class="form-select form-select-sm border-light bg-light">
+                    <option value="">Todas</option>
+                    <option value="em_curso" <?php echo ($f_situacao == 'em_curso' ? 'selected' : ''); ?>>Em Curso</option>
+                    <option value="atrasado" <?php echo ($f_situacao == 'atrasado' ? 'selected' : ''); ?>>Atrasado</option>
+                    <option value="entregue" <?php echo ($f_situacao == 'entregue' ? 'selected' : ''); ?>>No Prazo</option>
+                    <option value="aguardando" <?php echo ($f_situacao == 'aguardando' ? 'selected' : ''); ?>>Aguardando</option>
+                </select>
+            </div>
+
+            <div style="width: 140px;">
+                <label class="form-label-min">Mês (Prazo)</label>
+                <select name="f_mes" class="form-select form-select-sm border-light bg-light">
+                    <option value="">Qualquer mês</option>
+                    <?php 
+                    $meses = ["01"=>"Janeiro","02"=>"Fevereiro","03"=>"Março","04"=>"Abril","05"=>"Maio","06"=>"Junho","07"=>"Julho","08"=>"Agosto","09"=>"Setembro","10"=>"Outubro","11"=>"Novembro","12"=>"Dezembro"];
+                    foreach($meses as $val => $nome) { echo "<option value='$val' ".($f_mes == $val ? 'selected' : '').">$nome</option>"; }
+                    ?>
+                </select>
+            </div>
+
+            <div style="width: 300px;">
+                <label class="form-label-min">Período Vencimento (De / Até)</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" name="f_data_ini" class="form-control border-light bg-light" value="<?php echo $f_data_ini; ?>">
+                    <input type="date" name="f_data_fim" class="form-control border-light bg-light" value="<?php echo $f_data_fim; ?>">
+                </div>
+            </div>
+
+            <div>
+                <button type="submit" class="btn btn-dark btn-sm rounded-pill px-4 fw-bold">APLICAR</button>
+                <a href="quadro.php?id=<?php echo $id_quadro; ?>" class="btn btn-link text-danger text-decoration-none small">Limpar</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ÁREA DE GRUPOS E TAREFAS -->
     <div class="p-4">
         <?php 
         $stmtG_grid = $pdo->prepare("SELECT * FROM projetos_grupos WHERE quadro_id = ? ORDER BY id ASC");
@@ -119,34 +216,60 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
                     <input type="text" class="group-title-input" style="color:<?php echo $g['cor']; ?>;" value="<?php echo htmlspecialchars($g['nome']); ?>" onblur="ajaxUpdateGrupo(<?php echo $g['id']; ?>, 'nome', this.value)">
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-sm rounded-circle border-0 bg-transparent" type="button" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v text-muted"></i></button>
+                    <button class="btn btn-sm btn-action-group rounded-circle" type="button" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
                     <ul class="dropdown-menu dropdown-menu-end shadow border-0">
-                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="abrirModalEditarGrupo(<?php echo $g['id']; ?>, '<?php echo htmlspecialchars(addslashes($g['nome'])); ?>', '<?php echo $g['cor']; ?>')">Editar Grupo</a></li>
-                        <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="excluirGrupo(<?php echo $g['id']; ?>)">Excluir Grupo</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="abrirModalEditarGrupo(<?php echo $g['id']; ?>, '<?php echo htmlspecialchars(addslashes($g['nome'])); ?>', '<?php echo $g['cor']; ?>')"><i class="fas fa-edit me-2"></i> Editar Grupo</a></li>
+                        <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="excluirGrupo(<?php echo $g['id']; ?>)"><i class="fas fa-trash me-2"></i> Excluir Grupo</a></li>
                     </ul>
                 </div>
             </div>
+            
             <div id="wrap_<?php echo $g['id']; ?>">
                 <table class="table-clean">
                     <thead>
-                        <tr><th style="width:50px;"></th><th>TAREFA</th><th style="width:180px;" class="text-center">SITUAÇÃO</th><th style="width:180px;" class="text-center">STATUS</th><th style="width:120px;" class="text-center">AÇÕES</th></tr>
+                        <tr>
+                            <th style="width:50px;"></th>
+                            <th>TAREFA / ITEM</th>
+                            <th style="width:180px;" class="text-center">SITUAÇÃO</th>
+                            <th style="width:180px;" class="text-center">STATUS</th>
+                            <th style="width:120px;" class="text-center">AÇÕES</th>
+                        </tr>
                     </thead>
                     <tbody>
                         <?php
-                        $stmtT = $pdo->prepare("SELECT * FROM tarefas_projetos WHERE grupo_id = ? AND quadro_id = ? ORDER BY id ASC");
-                        $stmtT->execute([$g['id'], $id_quadro]);
-                        while($t = $stmtT->fetch()) {
-                            $cor_st = obterCorStatus($lista_status, $t['status_id']);
+                        $sql_t = "SELECT * FROM tarefas_projetos WHERE grupo_id = ? AND quadro_id = ?";
+                        $params_t = [$g['id'], $id_quadro];
+
+                        if($f_status) { $sql_t .= " AND status_id = ?"; $params_t[] = $f_status; }
+                        if($f_mes)    { $sql_t .= " AND MONTH(data_fim) = ?"; $params_t[] = $f_mes; }
+                        if($f_data_ini && $f_data_fim) { $sql_t .= " AND data_fim BETWEEN ? AND ?"; $params_t[] = $f_data_ini; $params_t[] = $f_data_fim; }
+
+                        $stmtT = $pdo->prepare($sql_t . " ORDER BY id ASC");
+                        $stmtT->execute($params_t);
+                        $total_tarefas = 0;
+
+                        while($t = $stmtT->fetch(PDO::FETCH_ASSOC)) {
+                            $situacao_slug = calcularSituacaoTarefa($t, $hoje, $lista_status);
+                            if($f_situacao && $f_situacao !== $situacao_slug) continue;
+                            
+                            $total_tarefas++;
+                            $cor_fundo_status = obterCorStatus($lista_status, $t['status_id']);
                         ?>
                         <tr class="task-row">
                             <td class="text-center"><input type="checkbox" class="form-check-input"></td>
-                            <td onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>, '<?php echo addslashes($t['titulo']); ?>')"><span class="fw-bold text-dark"><?php echo htmlspecialchars($t['titulo']); ?></span></td>
-                            <td class="text-center"><?php echo calcularSituacaoTarefa($t, $hoje, $lista_status); ?></td>
-                            <td>
-                                <select class="status-select shadow-sm" style="background-color:<?php echo $cor_st; ?>" onchange="ajaxUpdateTarefa(<?php echo $t['id']; ?>, 'status_id', this.value); location.reload();">
+                            <td onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>, '<?php echo addslashes($t['titulo']); ?>')">
+                                <span class="fw-bold text-dark"><?php echo htmlspecialchars($t['titulo']); ?></span>
+                            </td>
+                            <td class="text-center" onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>)">
+                                <?php echo situacaoBadge($situacao_slug); ?>
+                            </td>
+                            <td class="p-2">
+                                <select class="status-select shadow-sm" style="background-color:<?php echo $cor_fundo_status; ?>" onchange="ajaxUpdateTarefa(<?php echo $t['id']; ?>, 'status_id', this.value); location.reload();">
                                     <option value="">Selecione...</option>
                                     <?php foreach($lista_status as $s_op) { ?>
-                                        <option value="<?php echo $s_op['id']; ?>" <?php echo ($t['status_id'] == $s_op['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($s_op['label']); ?></option>
+                                        <option value="<?php echo $s_op['id']; ?>" <?php echo ($t['status_id'] == $s_op['id']) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($s_op['label']); ?>
+                                        </option>
                                     <?php } ?>
                                 </select>
                             </td>
@@ -165,7 +288,7 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
     </div>
 </div>
 
-<!-- PAINEL LATERAL -->
+<!-- PAINEL LATERAL (OFFCANVAS) -->
 <div class="offcanvas offcanvas-end shadow-lg" tabindex="-1" id="painelTarefa">
     <div class="offcanvas-header border-bottom"><h5 class="fw-bold mb-0 text-primary" id="painelTitulo"></h5><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
     <div class="offcanvas-body p-4 bg-light">
@@ -190,7 +313,24 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
     </div>
 </div>
 
-<!-- MODAL ETIQUETAS (CORRIGIDO) -->
+<!-- MODAL CONFIRMAÇÃO EXCLUSÃO TIMELINE -->
+<div class="modal fade" id="modalConfirmaExclusaoUpdate" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-danger">Confirmar Exclusão</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body p-4 text-center">
+                <p class="mb-0">Deseja realmente excluir permanentemente este registro?</p>
+                <div id="itemExcluirPreview" class="p-2 bg-light mt-2 small text-muted fst-italic rounded"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0 justify-content-center pb-4">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">NÃO</button>
+                <button type="button" class="btn btn-danger rounded-pill px-4 fw-bold" id="btnConfirmarExcluirUpdate">SIM, EXCLUIR</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL STATUS -->
 <div class="modal fade" id="modalStatus" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content p-4 border-0 shadow-lg rounded-4">
@@ -207,24 +347,6 @@ function calcularSituacaoTarefa($t, $hoje, $lista_status) {
                     <button class="btn btn-sm text-danger" onclick="excluirStatus(<?php echo $ls['id']; ?>)"><i class="fas fa-trash"></i></button>
                 </div>
                 <?php } ?>
-            </div>
-            <div class="text-end mt-3"><button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Fechar</button></div>
-        </div>
-    </div>
-</div>
-
-<!-- MODAL CONFIRMAÇÃO EXCLUSÃO -->
-<div class="modal fade" id="modalConfirmaExclusaoUpdate" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content border-0 shadow-lg rounded-4">
-            <div class="modal-header border-0 pb-0"><h5 class="modal-title fw-bold text-danger">Confirmar Exclusão</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body p-4 text-center">
-                <p class="mb-0">Deseja realmente excluir permanentemente este registro?</p>
-                <div id="itemExcluirPreview" class="p-2 bg-light mt-2 small text-muted fst-italic rounded"></div>
-            </div>
-            <div class="modal-footer border-0 pt-0 justify-content-center pb-4">
-                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">NÃO</button>
-                <button type="button" class="btn btn-danger rounded-pill px-4 fw-bold shadow" id="btnConfirmarExcluirUpdate">SIM, EXCLUIR</button>
             </div>
         </div>
     </div>
@@ -249,6 +371,7 @@ var modalStatus = new bootstrap.Modal(document.getElementById('modalStatus'));
 
 function abrirModalStatus() { modalStatus.show(); }
 
+// LÓGICA DE VISIBILIDADE (OLHINHO)
 function toggleVisibilidade(id) {
     var wrap = document.getElementById('wrap_' + id);
     var eye = document.getElementById('eye_' + id);
@@ -275,6 +398,7 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 
+// FUNÇÕES AJAX
 function ajaxUpdateGrupo(id, campo, valor) {
     var fd = new FormData(); fd.append('acao', 'atualizar_campo_grupo'); fd.append('id', id); fd.append('campo', campo); fd.append('valor', valor); fd.append('quadro_id', boardId);
     fetch('acoes.php', { method: 'POST', body: fd }).then(function() { location.reload(); });
