@@ -161,7 +161,7 @@ function getIcone($t) {
                 <div class="mb-4">
                     <i class="fas fa-bell text-warning fa-4x pulse-alert rounded-circle p-3" style="background: #fff9e6;"></i>
                 </div>
-                <h4 class="fw-bold text-dark">Transações p/ Hoje</h4>
+                <h4 class="fw-bold text-dark">Transações para Hoje</h4>
                 <p class="text-muted">Detectamos que você tem <b><?= $pendencias_hoje ?></b> transação(ões) futura(s) com vencimento para o dia de hoje.</p>
                 <div class="d-grid gap-2 mt-4">
                     <a href="index.php?p=transacoes&vencimento_hoje=1" class="btn btn-primary rounded-pill py-3 fw-bold shadow">VEJA QUAIS SÃO AGORA</a>

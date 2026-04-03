@@ -127,7 +127,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workspace Drive - Portal</title>
+    <title>Workspace Cloud - Portal</title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -216,7 +216,7 @@ try {
 <nav class="navbar-top shadow-sm">
     <div class="container d-flex justify-content-between align-items-center">
         <a class="navbar-brand" href="portal.php">
-            <i class="fas fa-cloud me-2"></i>Workspace <span class="text-dark">Drive</span>
+            <i class="fas fa-cloud me-2"></i>Workspace <span class="text-dark">Cloud</span>
         </a>
         <div class="d-flex align-items-center">
             <div class="text-end me-4 d-none d-md-block">
@@ -328,7 +328,7 @@ try {
 
 <footer class="text-center mt-5 py-5 text-muted small bg-white border-top">
     <div class="container">
-        <p class="mb-1 fw-bold">Workspace Drive &copy; <?php echo date('Y'); ?> | Tecnologia BDSoftech Cloud</p>
+        <p class="mb-1 fw-bold">Workspace Cloud &copy; <?php echo date('Y'); ?> | Tecnologia Desenvolvida por BDSoftech</p>
         <p class="mb-0" style="font-size: 10px;">IP de Acesso: <?php echo $_SERVER['REMOTE_ADDR']; ?> - Conexão Criptografada SSL</p>
     </div>
 </footer>
