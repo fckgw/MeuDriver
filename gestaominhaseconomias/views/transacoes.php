@@ -1,11 +1,21 @@
 <?php
 /**
  * BDSoft Workspace - Minhas Economias
- * View: Transações (PF) - Completa com Filtros e Exportação
+ * View: Transações (PF) - Completa com Filtros e Auto-Update de Status
  * Localização: gestaominhaseconomias/views/transacoes.php
  */
 
 $usuario_id = $_SESSION['usuario_id'];
+$hoje_sql = date('Y-m-d');
+
+// --- 0. REGRA DE NEGÓCIO AUTOMÁTICA: ATUALIZAR STATUS ATRASADO ---
+// Se o status for 'Futuro' e a data de vencimento for menor que hoje, vira 'Atrasado'
+$sql_update_atrasados = "UPDATE minhaseconomias_movimentacoes 
+                         SET status = 'Atrasado' 
+                         WHERE usuario_id = ? 
+                         AND status = 'Futuro' 
+                         AND data_vencimento < ?";
+$pdo->prepare($sql_update_atrasados)->execute([$usuario_id, $hoje_sql]);
 
 // 1. CAPTURA DE FILTROS
 $f_banco  = $_GET['f_banco'] ?? '';
@@ -42,7 +52,22 @@ if($venc_hoje) {
 $stmt = $pdo->prepare($sql . " ORDER BY m.data_vencimento DESC, m.id DESC");
 $stmt->execute($params);
 $lancamentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Contagem de Atrasados para Alerta
+$total_atrasados = 0;
+foreach($lancamentos as $l) if($l['status'] == 'Atrasado') $total_atrasados++;
 ?>
+
+<!-- ALERTA DE CONTAS ATRASADAS (NOVO) -->
+<?php if($total_atrasados > 0): ?>
+<div class="alert alert-danger border-0 shadow-sm rounded-4 d-flex align-items-center mb-4" role="alert">
+    <i class="fas fa-exclamation-triangle fa-2x me-3 opacity-75"></i>
+    <div>
+        <h6 class="fw-bold mb-0">Atenção: Você possui <?= $total_atrasados ?> lançamento(s) atrasado(s)!</h6>
+        <small>Estes itens já passaram do vencimento e podem incidir juros ou multas.</small>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="card card-finance p-4 bg-white shadow-sm border-0 mb-4">
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
@@ -77,6 +102,9 @@ $lancamentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <table class="table table-hover align-middle">
             <thead class="table-light"><tr class="small text-muted text-uppercase" style="font-size: 10px;"><th>Data</th><th>Descrição</th><th>Banco</th><th>Categoria</th><th>Valor</th><th>Situação</th><th class="text-center">Ações</th></tr></thead>
             <tbody>
+                <?php if(empty($lancamentos)): ?>
+                    <tr><td colspan="7" class="text-center py-4 text-muted small">Nenhum lançamento encontrado para este período.</td></tr>
+                <?php endif; ?>
                 <?php foreach($lancamentos as $l): ?>
                 <tr style="font-size: 13px;">
                     <td><?= date('d/m/y', strtotime($l['data_vencimento'])) ?></td>
@@ -84,10 +112,16 @@ $lancamentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td><?= $l['banco_nome'] ?></td>
                     <td class="small text-primary fw-bold"><?= $l['cat_nome'] ?? 'Sem Categoria' ?></td>
                     <td class="fw-bold <?= $l['tipo']=='Receita' ? 'text-success':'text-danger' ?>">R$ <?= number_format($l['valor'], 2, ',', '.') ?></td>
-                    <td><?php $cor=['Pago'=>'bg-success','Atrasado'=>'bg-danger','Futuro'=>'bg-primary']; echo "<span class='badge {$cor[$l['status']]} rounded-pill px-2' style='font-size:9px;'>{$l['status']}</span>"; ?></td>
+                    <td>
+                        <?php 
+                        $cor=['Pago'=>'bg-success','Atrasado'=>'bg-danger','Futuro'=>'bg-primary']; 
+                        $label = $l['status'];
+                        echo "<span class='badge {$cor[$l['status']]} rounded-pill px-2' style='font-size:9px;'>$label</span>"; 
+                        ?>
+                    </td>
                     <td class="text-center">
                         <div class="btn-group">
-                            <button class="btn btn-link btn-sm text-primary p-1" onclick="window.prepararEdicaoTransacao(<?= $l['id'] ?>, '<?= $l['data_vencimento'] ?>', '<?= addslashes($l['descricao']) ?>', <?= $l['categoria_id'] ?>, <?= $l['conta_id'] ?>, '<?= $l['valor'] ?>', '<?= $l['tipo'] ?>', '<?= $l['status'] ?>')"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-link btn-sm text-primary p-1" onclick="window.prepararEdicaoTransacao(<?= $l['id'] ?>, '<?= $l['data_vencimento'] ?>', '<?= addslashes($l['descricao']) ?>', <?= (int)$l['categoria_id'] ?>, <?= (int)$l['conta_id'] ?>, '<?= $l['valor'] ?>', '<?= $l['tipo'] ?>', '<?= $l['status'] ?>')"><i class="fas fa-edit"></i></button>
                             <button class="btn btn-link btn-sm text-danger p-1" onclick="window.confirmarExcluirTransacao(<?= $l['id'] ?>, '<?= addslashes($l['descricao']) ?>')"><i class="fas fa-trash"></i></button>
                         </div>
                     </td>
@@ -111,7 +145,6 @@ $lancamentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         <div class="col-md-6"><label class="small fw-bold">TIPO</label><select name="tipo_transacao" id="input_tipo_t" class="form-select"><option value="Despesa">Despesa (Saída)</option><option value="Receita">Receita (Entrada)</option></select></div>
                         <div class="col-12"><label class="small fw-bold">DESCRIÇÃO</label><input type="text" name="descricao" id="input_desc_t" class="form-control" required></div>
                         
-                        <!-- DROPBOX CATEGORIA COM BOTÃO "+" -->
                         <div class="col-md-10">
                             <label class="small fw-bold">CATEGORIA</label>
                             <select name="categoria_id" id="input_cat_t" class="form-select">
@@ -135,4 +168,10 @@ $lancamentos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </div>
 
 <!-- MODAL EXCLUIR TRANSAÇÃO -->
-<div class="modal fade" id="modalExcluirTransacao" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content border-0 shadow-lg text-center rounded-4"><div class="modal-body p-5"><i class="fas fa-trash text-danger fa-4x mb-4 opacity-25"></i><h4 class="fw-bold">Remover?</h4><p class="text-muted small" id="txtNomeTExcluir"></p><form action="index.php?p=transacoes&mes=<?= $mes_filtro ?>&ano=<?= $ano_filtro ?>" method="POST"><input type="hidden" name="id_transacao_excluir" id="id_t_excluir"><div class="d-grid gap-2 mt-4"><button type="submit" name="btn_excluir_transacao" class="btn btn-danger rounded-pill fw-bold shadow">SIM, EXCLUIR</button><button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Não</button></div></form></div></div></div></div>
+<div class="modal fade" id="modalExcluirTransacao" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content border-0 shadow-lg text-center rounded-4"><div class="modal-body p-5"><i class="fas fa-trash text-danger fa-4x mb-4 opacity-25"></i><h4 class="fw-bold">Remover?</h4><p class="text-muted small" id="txtNomeTExcluir"></p><form action="index.php?p=transacoes&mes=<?= $mes_filtro ?>&ano=<?= $ano_filtro ?>" method="POST"><input type="hidden" name="id_transacao_excluir" id="id_t_excluir"><div class="d-grid gap-2 mt-4"><button type="submit" name="btn_excluir_transacao" class="btn btn-danger rounded-pill fw-bold shadow">SIM, EXCLUIR</button><button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">Não</button>
+</div>
+    </form>
+        </div>
+            </div>
+                </div>
+                    </div>
