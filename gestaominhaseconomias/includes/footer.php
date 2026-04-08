@@ -42,7 +42,6 @@
                             <select name="pai_id" id="pai_id_cat" class="form-select bg-light border-0">
                                 <option value="">Nenhuma (Principal)</option>
                                 <?php 
-                                    // Busca categorias pai dinamicamente para o seletor em qualquer página
                                     $stP = $pdo->prepare("SELECT id, nome FROM minhaseconomias_categorias WHERE usuario_id = ? AND parent_id IS NULL AND id != 999 ORDER BY nome ASC");
                                     $stP->execute([$_SESSION['usuario_id']]);
                                     while($p = $stP->fetch(PDO::FETCH_ASSOC)) {
@@ -99,15 +98,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
-    /**
-     * INICIALIZAÇÃO DE VARIÁVEIS TIPO 'WINDOW'
-     * Isso garante que as funções sejam acessíveis de qualquer lugar do sistema.
-     */
     window.mC = null; window.mEC = null; window.mT = null; window.mET = null; 
     window.mS = null; window.mCat = null; window.mECat = null; window.mP = null;
 
     document.addEventListener("DOMContentLoaded", function() {
-        // Função interna para instanciar modais apenas se o elemento existir no HTML
         const safeInit = (id) => {
             const el = document.getElementById(id);
             return el ? new bootstrap.Modal(el) : null;
@@ -122,26 +116,17 @@
         window.mECat = safeInit('modalExcluirCat');
         window.mP = safeInit('modalPendenciasHoje');
 
-        // Ativação da máscara de dinheiro (Otimizada para não travar o campo do Saldo)
         inicializarMascarasNativas();
 
-        // Renderização dos gráficos se houver dados
         if (typeof window.dadosReal !== 'undefined') initCharts();
-
-        // Alerta automático de pendências hoje
         if (window.pendenciasHoje > 0 && window.mP) window.mP.show();
 
-        // Processamento de mensagens de sucesso vindo da URL (?success=...)
         verificarRetornoServidor();
     });
 
-    /**
-     * MÁSCARA MONETÁRIA NATIVA (MOBILE FRIENDLY)
-     * Não trava o campo e permite digitação fluída da esquerda para a direita.
-     */
     function inicializarMascarasNativas() {
-        // Selecionamos apenas os campos de transação. O campo de saldo de conta é tipo 'number' nativo.
-        const inputs = document.querySelectorAll('#input_valor_t, #valorTransacao');
+        // Agora incluímos o campo #valor (Saldo Inicial) na máscara para não travar
+        const inputs = document.querySelectorAll('#input_valor_t, #valorTransacao, #valor');
         inputs.forEach(i => {
             i.setAttribute('inputmode', 'numeric');
             i.addEventListener('input', (e) => {
@@ -155,9 +140,7 @@
         });
     }
 
-    /**
-     * FUNÇÕES GLOBAIS DE CATEGORIAS (BLINDADAS)
-     */
+    // --- FUNÇÕES GLOBAIS CATEGORIAS ---
     window.abrirModalNovaCategoria = function() {
         if(!window.mCat) return;
         document.getElementById('id_categoria').value = "";
@@ -196,9 +179,7 @@
         window.mECat.show();
     };
 
-    /**
-     * FUNÇÕES GLOBAIS DE TRANSAÇÕES
-     */
+    // --- FUNÇÕES GLOBAIS TRANSAÇÕES ---
     window.abrirModalNovaTransacao = function() { if(window.mT) window.mT.show(); };
     window.prepararEdicaoTransacao = function(id, data, desc, cat, conta, valor, tipo, status) {
         if(!window.mT) return;
@@ -219,15 +200,21 @@
         window.mET.show();
     };
 
-    /**
-     * FUNÇÕES GLOBAIS DE CONTAS (DASHBOARD)
-     */
-    window.abrirModalNovaConta = function() { if(window.mC) window.mC.show(); };
+    // --- FUNÇÕES GLOBAIS CONTAS ---
+    window.abrirModalNovaConta = function() { 
+        if(window.mC) {
+            document.getElementById('id_conta').value = "";
+            document.getElementById('nome').value = "";
+            document.getElementById('valor').value = "";
+            window.mC.show(); 
+        }
+    };
     window.prepararEdicao = function(id, nome, valor, status, tipo) {
         if(!window.mC) return;
         document.getElementById('id_conta').value = id;
         document.getElementById('nome').value = nome;
-        document.getElementById('valor').value = valor; // Campo number nativo
+        // Formata o valor para a máscara (100.50 -> 100,50)
+        document.getElementById('valor').value = valor.toString().replace('.', ',');
         document.getElementById('tipo').value = tipo;
         document.getElementById('status').checked = (status == 1);
         window.mC.show();
@@ -239,17 +226,34 @@
         window.mEC.show();
     };
 
-    /**
-     * MOTOR DE GRÁFICOS (CHART.JS)
-     */
-    let chartReal, chartFuturo, chartCategorias;
+    // --- FUNÇÃO RESETAR FILTROS ---
+    window.resetarFiltros = function() {
+        const d = new Date();
+        const m = (d.getMonth() + 1).toString().padStart(2, '0');
+        const a = d.getFullYear();
+        window.location.href = `index.php?p=dashboard&mes=${m}&ano=${a}`;
+    };
+
+    // --- MOTOR DE GRÁFICOS ---
     function initCharts() {
         const ctxR = document.getElementById('chartRealizado'); 
         const ctxF = document.getElementById('chartFuturo');
         const ctxC = document.getElementById('chartCategorias');
         if(!ctxR || !ctxF) return;
 
-        const opt = (sF) => ({ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, onClick: (e, el) => { if (el.length > 0) { const t = el[0].index === 0 ? 'Receita' : 'Despesa'; window.location.href = `index.php?p=transacoes&f_tipo=${t}&f_status=${sF}&mes=${window.filtroAtual.mes}&ano=${window.filtroAtual.ano}`; } } });
+        const opt = (sF) => ({ 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { legend: { display: false } }, 
+            onClick: (e, el) => { 
+                if (el.length > 0) { 
+                    const t = el[0].index === 0 ? 'Receita' : 'Despesa'; 
+                    // Passamos o filtro de conta adiante no clique do gráfico
+                    const contaF = window.filtroAtual.conta ? `&f_conta=${window.filtroAtual.conta}` : '';
+                    window.location.href = `index.php?p=transacoes&f_tipo=${t}&f_status=${sF}&mes=${window.filtroAtual.mes}&ano=${window.filtroAtual.ano}${contaF}`; 
+                } 
+            } 
+        });
 
         new Chart(ctxR.getContext('2d'), { type: 'bar', data: { labels: ['Ganhos', 'Gastos'], datasets: [{ data: [window.dadosReal.receita, window.dadosReal.despesa], backgroundColor: ['#2ecc71', '#e74c3c'], borderRadius: 10 }] }, options: opt('Pago') });
         new Chart(ctxF.getContext('2d'), { type: 'bar', data: { labels: ['A Receber', 'A Pagar'], datasets: [{ data: [window.dadosFuturo.receita, window.dadosFuturo.despesa], backgroundColor: ['#3498db', '#f1c40f'], borderRadius: 10 }] }, options: opt('Futuro') });
@@ -259,9 +263,6 @@
         }
     }
 
-    /**
-     * VERIFICAÇÃO DE FEEDBACKS DA URL
-     */
     function verificarRetornoServidor() {
         const p = new URLSearchParams(window.location.search);
         const s = p.get('success');
@@ -275,12 +276,14 @@
             
             document.getElementById('msgDescSucesso').innerText = msg;
             window.mS.show();
-            // Limpa a URL sem atualizar para não repetir o alerta
-            window.history.replaceState({}, document.title, window.location.pathname + "?p=" + (p.get('p') || 'dashboard') + (p.get('mes') ? "&mes="+p.get('mes') : "") + (p.get('ano') ? "&ano="+p.get('ano') : ""));
+            
+            // Preservamos mes, ano e conta na limpeza da URL
+            const mes = p.get('mes') ? "&mes="+p.get('mes') : "";
+            const ano = p.get('ano') ? "&ano="+p.get('ano') : "";
+            const conta = p.get('f_conta') ? "&f_conta="+p.get('f_conta') : "";
+            window.history.replaceState({}, document.title, window.location.pathname + "?p=" + (p.get('p') || 'dashboard') + mes + ano + conta);
         }
     }
-
-    function alterarTipoGrafico(v) { location.reload(); }
     </script>
 
     <footer class="text-center py-4 mt-5 border-top bg-white no-print">
