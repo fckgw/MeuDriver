@@ -1,11 +1,10 @@
 <?php
 /**
  * BDSoft Workspace - Minhas Economias
- * Controlador Principal - Sincronizado
+ * Controlador Principal - Sincronizado com Persistência de Filtros
  */
 session_start();
 
-// 1. VERIFICAÇÃO DE ACESSO
 if (!isset($_SESSION['usuario_id'])) {
     header("Location: ../../login.php");
     exit;
@@ -14,36 +13,29 @@ if (!isset($_SESSION['usuario_id'])) {
 require_once '../../config.php'; 
 $usuario_id = $_SESSION['usuario_id'];
 
-// 2. FILTROS GLOBAIS (Sincronizados)
+// --- 1. CAPTURA DE FILTROS GLOBAIS ---
 $mes_filtro = isset($_GET['mes']) ? str_pad($_GET['mes'], 2, "0", STR_PAD_LEFT) : date('m');
 $ano_filtro = $_GET['ano'] ?? date('Y');
 
-// NOVO FILTRO: Banco / Conta
-$conta_filtro = (isset($_GET['f_conta']) && $_GET['f_conta'] !== '') ? (int)$_GET['f_conta'] : null;
+// Captura filtros específicos de transações para persistência
+$f_banco  = $_GET['f_banco'] ?? '';
+$f_status = $_GET['f_status'] ?? '';
+$f_tipo   = $_GET['f_tipo'] ?? '';
+$f_cat    = $_GET['f_cat'] ?? '';
+$venc_hoje = isset($_GET['vencimento_hoje']) ? '1' : '';
 
-// Variável para manter os filtros nas URLs de redirecionamento
-$url_params = "mes=$mes_filtro&ano=$ano_filtro" . ($conta_filtro ? "&f_conta=$conta_filtro" : "");
+// Monta a Query String de filtros para os redirecionamentos (Redirect Context)
+$filtros_contexto = "mes=$mes_filtro&ano=$ano_filtro";
+if($f_banco)  $filtros_contexto .= "&f_banco=$f_banco";
+if($f_status) $filtros_contexto .= "&f_status=$f_status";
+if($f_tipo)   $filtros_contexto .= "&f_tipo=$f_tipo";
+if($f_cat)    $filtros_contexto .= "&f_cat=$f_cat";
+if($venc_hoje) $filtros_contexto .= "&vencimento_hoje=1";
 
-// --- 3. VARREDURA DE PENDÊNCIAS (Hoje e Atrasados) ---
-// Mantendo a lógica conforme solicitado para alimentar o modal de pendências
-try {
-    $hoje = date('Y-m-d');
-    $sql_pend = "SELECT COUNT(*) FROM minhaseconomias_movimentacoes 
-                 WHERE usuario_id = ? AND status != 'Pago' AND data_vencimento <= ?";
-    $stmt_pend = $pdo->prepare($sql_pend);
-    $stmt_pend->execute([$usuario_id, $hoje]);
-    $total_pendencias = $stmt_pend->fetchColumn();
-    
-    // Passa para o JavaScript via window
-    echo "<script>window.pendenciasHoje = $total_pendencias; window.filtroAtual = {mes: '$mes_filtro', ano: '$ano_filtro'};</script>";
-} catch (Exception $e) {
-    $total_pendencias = 0;
-}
-
-// --- 4. PROCESSAMENTO DE AÇÕES (POST) ---
+// --- 2. PROCESSAMENTO DE AÇÕES (POST) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // AÇÃO: SALVAR / EDITAR CATEGORIA
+    // AÇÃO: SALVAR CATEGORIA
     if (isset($_POST['btn_salvar_categoria'])) {
         $nome = trim($_POST['nome']);
         $tipo_c = $_POST['tipo'] ?? 'AMBOS';
@@ -51,62 +43,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id_cat = $_POST['id_categoria'] ?? null;
         $origem = $_POST['origem_requisicao'] ?? 'categorias';
 
-        try {
-            if (!empty($id_cat)) {
-                $sql = "UPDATE minhaseconomias_categorias SET nome = ?, tipo = ?, parent_id = ? WHERE id = ? AND usuario_id = ?";
-                $pdo->prepare($sql)->execute([$nome, $tipo_c, $parent_id, $id_cat, $usuario_id]);
-            } else {
-                $sql = "INSERT INTO minhaseconomias_categorias (usuario_id, parent_id, nome, tipo, icone) VALUES (?, ?, ?, ?, 'fa-tag')";
-                $pdo->prepare($sql)->execute([$usuario_id, $parent_id, $nome, $tipo_c]);
-            }
-            $goto = ($origem == 'transacoes') ? "transacoes" : "categorias";
-            header("Location: index.php?p=$goto&success=cat_ok&$url_params");
-            exit;
-        } catch (Exception $e) { die("Erro ao processar categoria: " . $e->getMessage()); }
-    }
-
-    // AÇÃO: EXCLUIR CATEGORIA
-    if (isset($_POST['btn_excluir_categoria'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_categorias WHERE id = ? AND usuario_id = ?")
-            ->execute([(int)$_POST['id_categoria_excluir'], $usuario_id]);
-        header("Location: index.php?p=categorias&success=cat_excluida&$url_params");
+        if (!empty($id_cat)) {
+            $pdo->prepare("UPDATE minhaseconomias_categorias SET nome=?, tipo=?, parent_id=? WHERE id=? AND usuario_id=?")
+                ->execute([$nome, $tipo_c, $parent_id, $id_cat, $usuario_id]);
+        } else {
+            $pdo->prepare("INSERT INTO minhaseconomias_categorias (usuario_id, parent_id, nome, tipo, icone) VALUES (?, ?, ?, ?, 'fa-tag')")
+                ->execute([$usuario_id, $parent_id, $nome, $tipo_c]);
+        }
+        $goto = ($origem == 'transacoes') ? "transacoes" : "categorias";
+        header("Location: index.php?p=$goto&success=cat_ok&$filtros_contexto");
         exit;
     }
 
-    // AÇÃO: SALVAR / EDITAR CONTA (MINHAS CONTAS)
+    // AÇÃO: SALVAR CONTA
     if (isset($_POST['btn_salvar_conta'])) {
+        $val_ini = str_replace(['.', ','], ['', '.'], $_POST['valor_inicial']);
         $id_c = $_POST['id_conta'] ?? null;
-        $nome_c = trim($_POST['nome']);
-        $tipo_c = $_POST['tipo'] ?? 'Carteira';
-        $status_c = isset($_POST['status']) ? 1 : 0;
-        
-        // Tratamento do Saldo Inicial para garantir cálculos corretos (converte vírgula em ponto)
-        $valor_br = $_POST['valor_inicial'] ?? '0,00';
-        $saldo_ini = str_replace(['.', ','], ['', '.'], $valor_br);
-        if(!is_numeric($saldo_ini)) $saldo_ini = 0.00;
-
-        try {
-            if ($id_c) {
-                $sql = "UPDATE minhaseconomias_contas SET nome=?, saldo_inicial=?, status=?, tipo=? WHERE id=? AND usuario_id=?";
-                $pdo->prepare($sql)->execute([$nome_c, $saldo_ini, $status_c, $tipo_c, $id_c, $usuario_id]);
-            } else {
-                $sql = "INSERT INTO minhaseconomias_contas (usuario_id, nome, tipo, saldo_inicial, status, cor) VALUES (?,?,?,?,?,?)";
-                $pdo->prepare($sql)->execute([$usuario_id, $nome_c, $tipo_c, $saldo_ini, $status_c, '#1a73e8']);
-            }
-            header("Location: index.php?p=dashboard&success=conta_ok&$url_params");
-            exit;
-        } catch (Exception $e) { die("Erro ao processar conta: " . $e->getMessage()); }
+        if ($id_c) {
+            $pdo->prepare("UPDATE minhaseconomias_contas SET nome=?, saldo_inicial=?, status=?, tipo=? WHERE id=? AND usuario_id=?")
+                ->execute([trim($_POST['nome']), $val_ini, (isset($_POST['status'])?1:0), $_POST['tipo'], $id_c, $usuario_id]);
+        } else {
+            $pdo->prepare("INSERT INTO minhaseconomias_contas (usuario_id, nome, tipo, saldo_inicial, status, cor) VALUES (?,?,?,?,?,?)")
+                ->execute([$usuario_id, trim($_POST['nome']), $_POST['tipo'], $val_ini, (isset($_POST['status'])?1:0), '#1a73e8']);
+        }
+        header("Location: index.php?p=dashboard&success=conta_ok&$filtros_contexto"); exit;
     }
 
-    // AÇÃO: EXCLUIR CONTA
-    if (isset($_POST['btn_excluir_conta'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_contas WHERE id = ? AND usuario_id = ?")
-            ->execute([(int)$_POST['id_conta_excluir'], $usuario_id]);
-        header("Location: index.php?p=dashboard&success=conta_excluida&$url_params");
-        exit;
-    }
-
-    // AÇÃO: SALVAR / EDITAR TRANSAÇÃO
+    // AÇÃO: SALVAR TRANSAÇÃO
     if (isset($_POST['btn_salvar_transacao'])) {
         $id_t = $_POST['id_transacao'] ?? null;
         $val_t = str_replace(['.', ','], ['', '.'], $_POST['valor']);
@@ -114,47 +77,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data_v = $_POST['data_transacao'];
         $data_p = ($status_t == 'Pago') ? $data_v : null;
 
-        try {
-            if ($id_t) {
-                $sql = "UPDATE minhaseconomias_movimentacoes SET conta_id=?, categoria_id=?, descricao=?, valor=?, data_vencimento=?, data_pagamento=?, status=?, tipo=? WHERE id=? AND usuario_id=?";
-                $pdo->prepare($sql)->execute([$_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $val_t, $data_v, $data_p, $status_t, $_POST['tipo_transacao'], $id_t, $usuario_id]);
-            } else {
-                $sql = "INSERT INTO minhaseconomias_movimentacoes (usuario_id, conta_id, categoria_id, descricao, valor, data_vencimento, data_pagamento, status, tipo, origem_pj) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)";
-                $pdo->prepare($sql)->execute([$usuario_id, $_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $val_t, $data_v, $data_p, $status_t, $_POST['tipo_transacao']]);
-            }
-            header("Location: index.php?p=transacoes&success=transacao_ok&$url_params");
-            exit;
-        } catch (Exception $e) { die("Erro ao salvar transação: " . $e->getMessage()); }
+        if ($id_t) {
+            $pdo->prepare("UPDATE minhaseconomias_movimentacoes SET conta_id=?, categoria_id=?, descricao=?, valor=?, data_vencimento=?, data_pagamento=?, status=?, tipo=? WHERE id=? AND usuario_id=?")
+                ->execute([$_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $val_t, $data_v, $data_p, $status_t, $_POST['tipo_transacao'], $id_t, $usuario_id]);
+        } else {
+            $pdo->prepare("INSERT INTO minhaseconomias_movimentacoes (usuario_id, conta_id, categoria_id, descricao, valor, data_vencimento, data_pagamento, status, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$usuario_id, $_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $val_t, $data_v, $data_p, $status_t, $_POST['tipo_transacao']]);
+        }
+        header("Location: index.php?p=transacoes&success=transacao_ok&$filtros_contexto"); exit;
     }
 
     // AÇÃO: EXCLUIR TRANSAÇÃO
     if (isset($_POST['btn_excluir_transacao'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_movimentacoes WHERE id = ? AND usuario_id = ?")
+        $pdo->prepare("DELETE FROM minhaseconomias_movimentacoes WHERE id=? AND usuario_id=?")
             ->execute([(int)$_POST['id_transacao_excluir'], $usuario_id]);
-        header("Location: index.php?p=transacoes&success=transacao_excluida&$url_params");
-        exit;
+        header("Location: index.php?p=transacoes&success=transacao_excluida&$filtros_contexto"); exit;
     }
 }
 
-// --- 5. RENDERIZAÇÃO DA VIEW ---
+// RENDERIZAÇÃO
 $pagina = $_GET['p'] ?? 'dashboard';
-
 include '../includes/header.php';
-
-// As variáveis $mes_filtro, $ano_filtro e $conta_filtro estarão disponíveis dentro de cada view
 switch ($pagina) {
-    case 'dashboard': 
-        include '../views/dashboard.php'; 
-        break;
-    case 'transacoes': 
-        include '../views/transacoes.php'; 
-        break;
-    case 'categorias': 
-        include '../views/categorias.php'; 
-        break;
-    default: 
-        include '../views/dashboard.php'; 
-        break;
+    case 'dashboard': include '../views/dashboard.php'; break;
+    case 'transacoes': include '../views/transacoes.php'; break;
+    case 'categorias': include '../views/categorias.php'; break;
+    default: include '../views/dashboard.php'; break;
 }
-
 include '../includes/footer.php';

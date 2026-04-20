@@ -2,7 +2,7 @@
 /**
  * BDSoft Workspace - DASHBOARD DEFINITIVO (FULL VERSION)
  * Segurança: Logout Automático após 3 minutos de inatividade.
- * Funcionalidades: Mover, Renomear, Excluir, Compartilhar, Upload AJAX c/ Tempo.
+ * Funcionalidades: Mover, Renomear, Excluir, Compartilhar, Upload AJAX, DOWNLOAD.
  */
 
 session_start();
@@ -220,7 +220,7 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
                     case 'pdf': $iconClass = "fa-file-pdf text-danger"; break;
                     case 'doc': case 'docx': $iconClass = "fa-file-word text-primary"; break;
                     case 'xls': case 'xlsx': $iconClass = "fa-file-excel text-success"; break;
-                    case 'mp4': case 'mov': $iconClass = "fa-file-video text-info"; break;
+                    case 'mp4': case 'mov': case 'avi': case 'mkv': $iconClass = "fa-file-video text-info"; break;
                 }
             ?>
             <div class="col" draggable="true" ondragstart="iniciarArraste(event, 'arquivo', <?php echo $a['id']; ?>)">
@@ -236,7 +236,16 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
                             <div class="text-truncate small fw-bold" style="font-size: 11px;" title="<?php echo htmlspecialchars($a['nome_original']); ?>"><?php echo htmlspecialchars($a['nome_original']); ?></div>
                             <div class="text-muted" style="font-size: 9px;"><?php echo date('d/m/y H:i', strtotime($a['data_upload'])); ?></div>
                         </div>
-                        <a href="javascript:void(0)" class="text-muted" onclick="abrirModalCompartilhar('arquivo', <?php echo $a['id']; ?>, '<?php echo addslashes($a['nome_original']); ?>')"><i class="fas fa-share-alt small"></i></a>
+                        <div class="d-flex align-items-center">
+                            <!-- BOTÃO DOWNLOAD -->
+                            <a href="download.php?id=<?php echo $a['id']; ?>" class="text-primary me-2" title="Baixar Arquivo">
+                                <i class="fas fa-download" style="font-size: 12px;"></i>
+                            </a>
+                            <!-- BOTÃO COMPARTILHAR -->
+                            <a href="javascript:void(0)" class="text-muted" onclick="abrirModalCompartilhar('arquivo', <?php echo $a['id']; ?>, '<?php echo addslashes($a['nome_original']); ?>')" title="Compartilhar">
+                                <i class="fas fa-share-alt" style="font-size: 12px;"></i>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -311,16 +320,14 @@ setcookie('view_pref', $modo_view, time() + (86400 * 30), "/");
     const modalProg = new bootstrap.Modal(document.getElementById('modalProgresso'));
 
     // --- LÓGICA DE INATIVIDADE (3 MINUTOS) ---
-    let time;
+    let inactivityTimer;
     function resetTimer() {
-        clearTimeout(time);
-        // 180000 milissegundos = 3 minutos
-        time = setTimeout(() => {
+        clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
             alert("Sua sessão expirou por inatividade de 3 minutos.");
             window.location.href = 'logout.php';
         }, 180000);
     }
-    // Eventos que reiniciam o contador
     window.onload = resetTimer;
     document.onmousemove = resetTimer;
     document.onkeydown = resetTimer;
