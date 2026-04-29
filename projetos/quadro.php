@@ -218,7 +218,7 @@ function situacaoBadge($sigla) {
                 <div class="dropdown">
                     <button class="btn btn-sm btn-action-group rounded-circle" type="button" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
                     <ul class="dropdown-menu dropdown-menu-end shadow border-0">
-                        <li><a class="dropdown-item" href="javascript:void(0)" onclick="abrirModalEditarGrupo(<?php echo $g['id']; ?>, '<?php echo htmlspecialchars(addslashes($g['nome'])); ?>', '<?php echo $g['cor']; ?>')"><i class="fas fa-edit me-2"></i> Editar Grupo</a></li>
+                        <li><a class="dropdown-item" href="javascript:void(0)" onclick='abrirModalEditarGrupo(<?php echo $g['id']; ?>, <?php echo htmlspecialchars(json_encode($g['nome'])); ?>, "<?php echo $g['cor']; ?>")'><i class="fas fa-edit me-2"></i> Editar Grupo</a></li>
                         <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="excluirGrupo(<?php echo $g['id']; ?>)"><i class="fas fa-trash me-2"></i> Excluir Grupo</a></li>
                     </ul>
                 </div>
@@ -257,7 +257,7 @@ function situacaoBadge($sigla) {
                         ?>
                         <tr class="task-row">
                             <td class="text-center"><input type="checkbox" class="form-check-input"></td>
-                            <td onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>, '<?php echo addslashes($t['titulo']); ?>')">
+                            <td onclick='abrirPainelDetalhes(<?php echo $t['id']; ?>, <?php echo htmlspecialchars(json_encode($t['titulo'])); ?>)'>
                                 <span class="fw-bold text-dark"><?php echo htmlspecialchars($t['titulo']); ?></span>
                             </td>
                             <td class="text-center" onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>)">
@@ -274,7 +274,7 @@ function situacaoBadge($sigla) {
                                 </select>
                             </td>
                             <td class="text-center">
-                                <button class="btn btn-sm btn-light border rounded-pill px-3" onclick="abrirPainelDetalhes(<?php echo $t['id']; ?>, '<?php echo addslashes($t['titulo']); ?>')">Abrir</button>
+                                <button class="btn btn-sm btn-light border rounded-pill px-3" onclick='abrirPainelDetalhes(<?php echo $t['id']; ?>, <?php echo htmlspecialchars(json_encode($t['titulo'])); ?>)'>Abrir</button>
                                 <button class="btn btn-sm text-danger ms-1" onclick="excluirTarefa(<?php echo $t['id']; ?>)"><i class="fas fa-trash"></i></button>
                             </td>
                         </tr>
