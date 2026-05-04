@@ -33,6 +33,13 @@
                 <li class="nav-item"><a class="nav-link <?= $pagina == 'transacoes' ? 'active' : '' ?>" href="index.php?p=transacoes">Transações</a></li>
                 <li class="nav-item"><a class="nav-link <?= $pagina == 'categorias' ? 'active' : '' ?>" href="index.php?p=categorias">Categorias</a></li>
                 <li class="nav-item"><a class="nav-link <?= $pagina == 'sonhos' ? 'active' : '' ?>" href="index.php?p=sonhos">Sonhos</a></li>
+                
+                <li class="nav-item">
+                <a class="nav-link <?= ($pagina == 'controle') ? 'active' : '' ?>" href="index.php?p=controle">
+                    <i class="fas fa-car"></i> <span>Controle</span>
+                </a>
+                </li>
+
                 <li class="nav-item"><a class="nav-link <?= $pagina == 'orcamento' ? 'active' : '' ?>" href="index.php?p=orcamento">Orçamento</a></li>
                 <li class="nav-item"><a class="nav-link <?= $pagina == 'analise' ? 'active' : '' ?>" href="index.php?p=analise">Análise</a></li>
                 <li class="nav-item"><a class="nav-link" href="exportar.php?type=pdf&mes=<?= $mes_filtro ?>&ano=<?= $ano_filtro ?>">Relatórios</a></li>
