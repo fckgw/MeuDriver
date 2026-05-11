@@ -77,6 +77,11 @@ $pagina_ativa = basename($_SERVER['PHP_SELF']);
         <a class="nav-link <?php echo ($pagina_ativa == 'provisoes.php') ? 'active' : ''; ?>" href="provisoes.php">
             <i class="fas fa-calendar-alt"></i> Provisionamento
         </a>
+
+        <a href="farmacia.php" class="nav-link text-white">
+            <i class="fas fa-first-aid me-2"></i> Farmácia Rural
+        </a>
+
         <a class="nav-link <?php echo ($pagina_ativa == 'relatorio_financeiro.php') ? 'active' : ''; ?>" href="relatorio_financeiro.php">
             <i class="fas fa-chart-bar"></i> Relatórios BI
         </a>
