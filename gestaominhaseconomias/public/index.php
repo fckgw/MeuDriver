@@ -1,7 +1,7 @@
 <?php
 /**
  * BDSoft Workspace - Minhas Economias
- * Controlador Principal - Versão Completa e Estabilizada
+ * Controlador Principal - Versão BI Premium Estabilizada
  */
 
 // Ativa exibição de erros para diagnóstico
@@ -28,7 +28,17 @@ $filtro_tipo = $_GET['f_tipo'] ?? '';
 $filtro_categoria = $_GET['f_cat'] ?? '';
 $ordenacao_data = $_GET['ordem'] ?? 'ASC';
 
-$filtros_contexto_url = "mes=$mes_filtro&ano=$ano_filtro&f_banco=$filtro_banco&f_status=$filtro_status&f_tipo=$filtro_tipo&f_cat=$filtro_categoria&ordem=$ordenacao_data";
+// --- PADRONIZAÇÃO DE DATAS PARA TODAS AS VIEWS (RESOLVE OS WARNINGS) ---
+// O Dashboard usa data_de/data_ate. O Transacoes usa data_inicio/data_fim.
+// Definimos ambos aqui para que todas as views funcionem perfeitamente.
+$data_de = $_GET['data_de'] ?? $_GET['data_inicio'] ?? date('Y-m-01', strtotime("$ano_filtro-$mes_filtro-01"));
+$data_ate = $_GET['data_ate'] ?? $_GET['data_fim'] ?? date('Y-m-t', strtotime("$ano_filtro-$mes_filtro-01"));
+
+// Criamos os aliases (apelidos) para a página de transações
+$data_inicio = $data_de;
+$data_fim = $data_ate;
+
+$filtros_contexto_url = "mes=$mes_filtro&ano=$ano_filtro&f_banco=$filtro_banco&f_status=$filtro_status&f_tipo=$filtro_tipo&f_cat=$filtro_categoria&ordem=$ordenacao_data&data_de=$data_de&data_ate=$data_ate";
 
 // --- VARREDURA AUTOMÁTICA: ATUALIZA STATUS PARA ATRASADO ---
 $data_hoje_referencia = date('Y-m-d');
@@ -38,71 +48,37 @@ $pdo->prepare("UPDATE minhaseconomias_movimentacoes SET status = 'Atrasado' WHER
 // --- PROCESSAMENTO DE REQUISIÇÕES POST ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
+    // AÇÃO BI: MARCAR ITEM PARA ESTUDO (FLAG ROBÔ)
+    if (isset($_POST['btn_flag_bi'])) {
+        $id_transacao = (int)$_POST['id_transacao'];
+        $status_bi = (int)$_POST['status_bi'];
+        $pdo->prepare("UPDATE minhaseconomias_movimentacoes SET bi_analise = ? WHERE id = ? AND usuario_id = ?")
+            ->execute([$status_bi, $id_transacao, $usuario_id]);
+        header("Location: " . $_SERVER['HTTP_REFERER']);
+        exit;
+    }
+
     // AÇÃO: SALVAR OU EDITAR CONTA (BANCO)
-    // Ajustado para bater exatamente com os nomes dos inputs do seu dashboard.php
     if (isset($_POST['btn_salvar_conta'])) {
         $id_conta = !empty($_POST['id_conta']) ? (int)$_POST['id_conta'] : null;
-        $nome_conta = trim($_POST['nome']); // No seu HTML: name="nome"
-        $tipo_conta = $_POST['tipo'] ?? 'Banco'; // No seu HTML: name="tipo"
-        $status_conta = isset($_POST['status']) ? 1 : 0; // No seu HTML: name="status"
-        
-        // Tratamento do valor monetário do saldo inicial
-        // No seu HTML: name="valor_inicial"
+        $nome_conta = trim($_POST['nome']);
+        $tipo_conta = $_POST['tipo'] ?? 'Banco';
+        $status_conta = isset($_POST['status']) ? 1 : 0;
         $saldo_bruto = $_POST['valor_inicial'] ?? '0';
         $saldo_sem_ponto = str_replace('.', '', $saldo_bruto);
         $saldo_decimal = str_replace(',', '.', $saldo_sem_ponto);
 
-        try {
-            if ($id_conta) {
-                // EDITAR CONTA EXISTENTE
-                $sql = "UPDATE minhaseconomias_contas SET nome = ?, tipo = ?, saldo_inicial = ?, status = ? WHERE id = ? AND usuario_id = ?";
-                $pdo->prepare($sql)->execute([$nome_conta, $tipo_conta, $saldo_decimal, $status_conta, $id_conta, $usuario_id]);
-            } else {
-                // INSERIR NOVA CONTA
-                $sql = "INSERT INTO minhaseconomias_contas (usuario_id, nome, tipo, saldo_inicial, status) VALUES (?, ?, ?, ?, ?)";
-                $pdo->prepare($sql)->execute([$usuario_id, $nome_conta, $tipo_conta, $saldo_decimal, $status_conta]);
-            }
-            header("Location: index.php?success=conta_ok&$filtros_contexto_url"); 
-            exit;
-        } catch (PDOException $e) {
-            die("Erro ao salvar conta: " . $e->getMessage());
-        }
-    }
-
-    // AÇÃO: EXCLUIR CONTA
-    if (isset($_POST['btn_excluir_conta'])) {
-        $id_conta_excluir = (int)$_POST['id_conta_excluir'];
-        $pdo->prepare("DELETE FROM minhaseconomias_contas WHERE id = ? AND usuario_id = ?")
-            ->execute([$id_conta_excluir, $usuario_id]);
-        header("Location: index.php?success=conta_deleted&$filtros_contexto_url"); 
-        exit;
-    }
-
-    // AÇÃO: SALVAR OU EDITAR CATEGORIA
-    if (isset($_POST['btn_salvar_categoria'])) {
-        $id_categoria = !empty($_POST['id_categoria']) ? (int)$_POST['id_categoria'] : null;
-        $id_categoria_pai = !empty($_POST['parent_id']) ? (int)$_POST['parent_id'] : null;
-        $nome_categoria = trim($_POST['nome']);
-        $tipo_categoria = $_POST['tipo'];
-
-        if ($id_categoria) {
-            $pdo->prepare("UPDATE minhaseconomias_categorias SET nome=?, tipo=?, parent_id=? WHERE id=? AND usuario_id=?")
-                ->execute([$nome_categoria, $tipo_categoria, $id_categoria_pai, $id_categoria, $usuario_id]);
+        if ($id_conta) {
+            $pdo->prepare("UPDATE minhaseconomias_contas SET nome = ?, tipo = ?, saldo_inicial = ?, status = ? WHERE id = ? AND usuario_id = ?")
+                ->execute([$nome_conta, $tipo_conta, $saldo_decimal, $status_conta, $id_conta, $usuario_id]);
         } else {
-            $pdo->prepare("INSERT INTO minhaseconomias_categorias (usuario_id, parent_id, nome, tipo, icone) VALUES (?,?,?,?,'fa-tag')")
-                ->execute([$usuario_id, $id_categoria_pai, $nome_categoria, $tipo_categoria]);
+            $pdo->prepare("INSERT INTO minhaseconomias_contas (usuario_id, nome, tipo, saldo_inicial, status) VALUES (?, ?, ?, ?, ?)")
+                ->execute([$usuario_id, $nome_conta, $tipo_conta, $saldo_decimal, $status_conta]);
         }
-        header("Location: index.php?p=categorias&success=ok&$filtros_contexto_url"); exit;
+        header("Location: index.php?success=conta_ok&$filtros_contexto_url"); exit;
     }
 
-    // AÇÃO: EXCLUIR CATEGORIA
-    if (isset($_POST['btn_excluir_categoria'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_categorias WHERE id=? AND usuario_id=?")
-            ->execute([(int)$_POST['id_categoria_excluir'], $usuario_id]);
-        header("Location: index.php?p=categorias&success=deleted&$filtros_contexto_url"); exit;
-    }
-
-    // AÇÃO: SALVAR OU EDITAR TRANSAÇÃO FINANCEIRA
+    // AÇÃO: SALVAR OU EDITAR TRANSAÇÃO (LÓGICA LANÇAR)
     if (isset($_POST['btn_salvar_transacao'])) {
         $id_transacao = !empty($_POST['id_transacao']) ? (int)$_POST['id_transacao'] : null;
         $valor_bruto = $_POST['valor'];
@@ -114,28 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data_pagamento = ($status_selecionado == 'Pago') ? $data_vencimento : null;
 
         if ($id_transacao) {
-            $sql_update = "UPDATE minhaseconomias_movimentacoes SET conta_id=?, categoria_id=?, descricao=?, valor=?, data_vencimento=?, data_pagamento=?, status=?, tipo=? WHERE id=? AND usuario_id=?";
-            $pdo->prepare($sql_update)->execute([$_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $valor_decimal_final, $data_vencimento, $data_pagamento, $status_selecionado, $_POST['tipo_transacao'], $id_transacao, $usuario_id]);
-            $movimentacao_id_vinculo = $id_transacao;
+            $pdo->prepare("UPDATE minhaseconomias_movimentacoes SET conta_id=?, categoria_id=?, descricao=?, valor=?, data_vencimento=?, data_pagamento=?, status=?, tipo=? WHERE id=? AND usuario_id=?")
+                ->execute([$_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $valor_decimal_final, $data_vencimento, $data_pagamento, $status_selecionado, $_POST['tipo_transacao'], $id_transacao, $usuario_id]);
         } else {
-            $sql_insert = "INSERT INTO minhaseconomias_movimentacoes (usuario_id, conta_id, categoria_id, descricao, valor, data_vencimento, data_pagamento, status, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            $stmt = $pdo->prepare($sql_insert);
-            $stmt->execute([$usuario_id, $_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $valor_decimal_final, $data_vencimento, $data_pagamento, $status_selecionado, $_POST['tipo_transacao']]);
-            $movimentacao_id_vinculo = $pdo->lastInsertId();
-        }
-
-        if (isset($_POST['combustivel_ativo']) && $_POST['combustivel_ativo'] == '1' && !empty($_POST['veiculo_id'])) {
-            $id_veiculo = $_POST['veiculo_id'];
-            $km_atual_informado = (float)$_POST['km_lancamento'];
-            $litros_abastecidos = (float)str_replace(',', '.', $_POST['litros_lancamento']);
-            $stmt_km = $pdo->prepare("SELECT km_atual FROM minhaseconomias_combustivel WHERE veiculo_id = ? AND km_atual < ? ORDER BY km_atual DESC LIMIT 1");
-            $stmt_km->execute([$id_veiculo, $km_atual_informado]);
-            $ultimo_registro_km = $stmt_km->fetch();
-            $km_rodado_calculado = ($ultimo_registro_km) ? ($km_atual_informado - $ultimo_registro_km['km_atual']) : 0;
-            $media_consumo_calculada = ($km_rodado_calculado > 0 && $litros_abastecidos > 0) ? ($km_rodado_calculado / $litros_abastecidos) : 0;
-            $pdo->prepare("DELETE FROM minhaseconomias_combustivel WHERE movimentacao_id = ?")->execute([$movimentacao_id_vinculo]);
-            $sql_combustivel = "INSERT INTO minhaseconomias_combustivel (movimentacao_id, veiculo_id, km_atual, litros, km_rodado, media_kml, usuario_id, data_abastecimento, valor_total) VALUES (?,?,?,?,?,?,?,?,?)";
-            $pdo->prepare($sql_combustivel)->execute([$movimentacao_id_vinculo, $id_veiculo, $km_atual_informado, $litros_abastecidos, $km_rodado_calculado, $media_consumo_calculada, $usuario_id, $data_vencimento, $valor_decimal_final]);
+            $pdo->prepare("INSERT INTO minhaseconomias_movimentacoes (usuario_id, conta_id, categoria_id, descricao, valor, data_vencimento, data_pagamento, status, tipo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$usuario_id, $_POST['conta_id'], $_POST['categoria_id'], trim($_POST['descricao']), $valor_decimal_final, $data_vencimento, $data_pagamento, $status_selecionado, $_POST['tipo_transacao']]);
         }
         header("Location: index.php?p=transacoes&success=ok&$filtros_contexto_url"); exit;
     }
@@ -145,60 +104,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("DELETE FROM minhaseconomias_movimentacoes WHERE id=? AND usuario_id=?")->execute([(int)$_POST['id_transacao_excluir'], $usuario_id]);
         header("Location: index.php?p=transacoes&success=deleted&$filtros_contexto_url"); exit;
     }
-
-    // AÇÃO: SALVAR VEÍCULO
-    if (isset($_POST['btn_salvar_veiculo'])) {
-        $id_veiculo = !empty($_POST['id_veiculo']) ? (int)$_POST['id_veiculo'] : null;
-        if ($id_veiculo) {
-            $pdo->prepare("UPDATE minhaseconomias_veiculos SET marca=?, modelo=?, placa=? WHERE id=? AND usuario_id=?")
-                ->execute([$_POST['marca'], $_POST['modelo'], $_POST['placa'], $id_veiculo, $usuario_id]);
-        } else {
-            $pdo->prepare("INSERT INTO minhaseconomias_veiculos (usuario_id, marca, modelo, placa) VALUES (?,?,?,?)")
-                ->execute([$usuario_id, $_POST['marca'], $_POST['modelo'], $_POST['placa']]);
-        }
-        header("Location: index.php?p=controle&success=ok"); exit;
-    }
-
-    // AÇÃO: EXCLUIR VEÍCULO
-    if (isset($_POST['btn_excluir_veiculo'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_veiculos WHERE id=? AND usuario_id=?")->execute([(int)$_POST['id_veiculo_excluir'], $usuario_id]);
-        header("Location: index.php?p=controle&success=deleted"); exit;
-    }
-
-    // AÇÃO: SALVAR ABASTECIMENTO
-    if (isset($_POST['btn_salvar_abastecimento'])) {
-        $id_abastecimento = !empty($_POST['id_abastecimento']) ? (int)$_POST['id_abastecimento'] : null;
-        $veiculo_id = (int)$_POST['veiculo_id'];
-        $data_abastecimento = $_POST['data_abastecimento'];
-        $km_atual = (float)$_POST['km_atual'];
-        $litros = (float)str_replace(',', '.', $_POST['litros']);
-        $valor_total = (float)str_replace(['.', ','], ['', '.'], $_POST['valor_total']);
-
-        $query_anterior = $pdo->prepare("SELECT km_atual FROM minhaseconomias_combustivel WHERE veiculo_id = ? AND km_atual < ? AND usuario_id = ? ORDER BY km_atual DESC LIMIT 1");
-        $query_anterior->execute([$veiculo_id, $km_atual, $usuario_id]);
-        $registro_anterior = $query_anterior->fetch(PDO::FETCH_ASSOC);
-
-        $km_rodado = 0; $media_kml = 0;
-        if ($registro_anterior) {
-            $km_rodado = $km_atual - $registro_anterior['km_atual'];
-            if ($litros > 0) { $media_kml = $km_rodado / $litros; }
-        }
-
-        if ($id_abastecimento) {
-            $sql_update = "UPDATE minhaseconomias_combustivel SET veiculo_id = ?, data_abastecimento = ?, km_atual = ?, litros = ?, valor_total = ?, km_rodado = ?, media_kml = ? WHERE id = ? AND usuario_id = ?";
-            $pdo->prepare($sql_update)->execute([$veiculo_id, $data_abastecimento, $km_atual, $litros, $valor_total, $km_rodado, $media_kml, $id_abastecimento, $usuario_id]);
-        } else {
-            $sql_insert = "INSERT INTO minhaseconomias_combustivel (usuario_id, veiculo_id, data_abastecimento, km_atual, litros, valor_total, km_rodado, media_kml) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-            $pdo->prepare($sql_insert)->execute([$usuario_id, $veiculo_id, $data_abastecimento, $km_atual, $litros, $valor_total, $km_rodado, $media_kml]);
-        }
-        header("Location: index.php?p=controle&success=abastecimento_ok"); exit;
-    }
-
-    // AÇÃO: EXCLUIR ABASTECIMENTO
-    if (isset($_POST['btn_excluir_abastecimento'])) {
-        $pdo->prepare("DELETE FROM minhaseconomias_combustivel WHERE id = ? AND usuario_id = ?")->execute([(int)$_POST['id_abastecimento_excluir'], $usuario_id]);
-        header("Location: index.php?p=controle&success=abastecimento_deletado"); exit;
-    }
 }
 
 // RENDERIZAÇÃO DO TEMPLATE
@@ -206,18 +111,11 @@ include '../includes/header.php';
 $pagina_solicitada = $_GET['p'] ?? 'dashboard';
 
 switch ($pagina_solicitada) {
-    case 'transacoes': 
-        include '../views/transacoes.php'; 
-        break;
-    case 'categorias': 
-        include '../views/categorias.php'; 
-        break;
-    case 'controle':   
-        include '../views/controle.php'; 
-        break;
-    default: 
-        include '../views/dashboard.php'; 
-        break;
+    case 'transacoes': include '../views/transacoes.php'; break;
+    case 'categorias': include '../views/categorias.php'; break;
+    case 'controle':   include '../views/controle.php'; break;
+    case 'bi':         include '../views/bi.php'; break;
+    default:           include '../views/dashboard.php'; break;
 }
 
 include '../includes/footer.php';

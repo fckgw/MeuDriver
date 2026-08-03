@@ -2,7 +2,6 @@
 /**
  * BDSoft Workspace - PROCESSAMENTO DE AÇÕES DOS PROJETOS
  * Localização: projetos/acoes.php
- * Correção: Flexibilidade no recebimento do nome do quadro e tratamento de erros
  */
 session_start();
 require_once '../config.php';
@@ -34,51 +33,7 @@ try {
     switch ($acao) {
 
         // =========================
-        // 📋 QUADROS (PROJETOS)
-        // =========================
-        case 'criar_quadro':
-            // Tentamos capturar por 'nome_quadro' ou apenas 'nome' para evitar erros de integração
-            $nome_quadro = trim($_POST['nome_quadro'] ?? $_POST['nome'] ?? '');
-            $tipo = $_POST['tipo'] ?? 'Privado';
-
-            if (empty($nome_quadro)) {
-                throw new Exception("O nome do projeto é obrigatório.");
-            }
-
-            // 1. Inserir o novo Quadro
-            $sqlQ = "INSERT INTO quadros_projetos (nome, usuario_id, tipo, data_criacao) VALUES (?, ?, ?, NOW())";
-            $stmtQ = $pdo->prepare($sqlQ);
-            $stmtQ->execute([$nome_quadro, $uid_sessao, $tipo]);
-            $id_novo_quadro = $pdo->lastInsertId();
-
-            // 2. Inserir Status Padrão para o novo quadro (evita erros de listagem vazia)
-            $sqlS = "INSERT INTO quadros_status (quadro_id, label, cor) VALUES 
-                     (?, 'A fazer', '#6c757d'), 
-                     (?, 'Em curso', '#007bff'), 
-                     (?, 'Concluído', '#28a745')";
-            $stmtS = $pdo->prepare($sqlS);
-            $stmtS->execute([$id_novo_quadro, $id_novo_quadro, $id_novo_quadro]);
-
-            echo json_encode(['status' => 'ok', 'id' => $id_novo_quadro]);
-            break;
-
-        case 'deletar_quadro_completo':
-            $id_quadro = (int)$_POST['id'];
-
-            // Verifica permissão (dono ou admin)
-            $stmtCheck = $pdo->prepare("SELECT id FROM quadros_projetos WHERE id = ? AND (usuario_id = ? OR ? = 'admin')");
-            $stmtCheck->execute([$id_quadro, $uid_sessao, $_SESSION['usuario_nivel']]);
-
-            if ($stmtCheck->rowCount() > 0) {
-                $pdo->prepare("DELETE FROM quadros_projetos WHERE id = ?")->execute([$id_quadro]);
-                echo json_encode(['status' => 'ok']);
-            } else {
-                throw new Exception("Você não tem permissão para excluir este projeto.");
-            }
-            break;
-
-        // =========================
-        // 🏷️ STATUS (ETIQUETAS)
+        // 🏷 STATUS (ETIQUETAS)
         // =========================
         case 'add_status':
             $pdo->prepare("INSERT INTO quadros_status (quadro_id, label, cor) VALUES (?, ?, ?)")
@@ -96,6 +51,7 @@ try {
         // =========================
         case 'excluir_tarefa':
             $id = (int)$_POST['id'];
+            // Limpa os updates antes de deletar a tarefa por causa da integridade de dados
             $pdo->prepare("DELETE FROM tarefas_updates WHERE tarefa_id = ?")->execute([$id]);
             $pdo->prepare("DELETE FROM tarefas_projetos WHERE id = ?")->execute([$id]);
             echo json_encode(['status' => 'ok']);
@@ -103,6 +59,7 @@ try {
 
         case 'nova_tarefa_completa':
             $quadro_id = (int)$_POST['quadro_id'];
+            // Pega o primeiro status disponível para o quadro para não deixar nulo
             $st_id = $pdo->query("SELECT id FROM quadros_status WHERE quadro_id = $quadro_id ORDER BY id ASC LIMIT 1")->fetchColumn();
 
             $pdo->prepare("
@@ -160,9 +117,11 @@ try {
             $conteudo = $_POST['conteudo'] ?? '';
 
             if ($update_id > 0) {
+                // Editar existente
                 $stmt = $pdo->prepare("UPDATE tarefas_updates SET conteudo = ? WHERE id = ?");
                 $stmt->execute([$conteudo, $update_id]);
             } else {
+                // Novo registro
                 $stmt = $pdo->prepare("INSERT INTO tarefas_updates (tarefa_id, usuario_id, conteudo, data_criacao) VALUES (?, ?, ?, NOW())");
                 $stmt->execute([$tarefa_id, $uid_sessao, $conteudo]);
             }
@@ -170,8 +129,10 @@ try {
             break;
 
         case 'excluir_update':
+            // Recebe 'id' vindo do formulário JavaScript
             $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
             if ($id <= 0) throw new Exception("ID inválido para exclusão");
+
             $pdo->prepare("DELETE FROM tarefas_updates WHERE id = ?")->execute([$id]);
             echo json_encode(['status' => 'ok']);
             break;
@@ -188,10 +149,11 @@ try {
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach($rows as $r) {
+                // Limpeza crítica para não quebrar o JavaScript
                 $preview_texto = strip_tags($r['conteudo']);
-                $preview_texto = str_replace(["\r", "\n", "'", '"'], " ", $preview_texto);
-                $preview_texto = mb_strimwidth($preview_texto, 0, 80, "...");
-                $preview_js = addslashes($preview_texto);
+                $preview_texto = str_replace(["\r", "\n", "'", '"'], " ", $preview_texto); // Remove quebras e aspas
+                $preview_texto = mb_strimwidth($preview_texto, 0, 80, "..."); // Limita tamanho
+                $preview_js = addslashes($preview_texto); // Escapa para segurança final
 
                 echo "<div class='card mb-3 shadow-sm border-0' style='border-radius:12px;'>
                         <div class='card-header bg-white border-0 d-flex justify-content-between align-items-center pt-3 px-3'>
@@ -242,7 +204,7 @@ try {
             break;
 
         default:
-            throw new Exception("Ação inválida: " . $acao);
+            throw new Exception("Ação inválida");
     }
 
 } catch (Exception $e) {
